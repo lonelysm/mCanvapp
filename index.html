@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Canvas 도형 그리기 샘플</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__title">Canvas Draw Sample</div>
+
+      <div class="toolbar" role="group" aria-label="도형 그리기 도구">
+        <label class="toolbar__group">
+          <span class="toolbar__label">도구</span>
+          <select id="toolSelect" class="toolbar__control">
+            <option value="select">선택/이동 (V)</option>
+            <option value="point">점 (P)</option>
+            <option value="line">선 (L)</option>
+            <option value="circle">원 (C)</option>
+            <option value="rect">사각형 (R)</option>
+            <option value="polygon">다각형 (G)</option>
+            <option value="freehand">자유곡선 (F)</option>
+          </select>
+        </label>
+
+        <label class="toolbar__group">
+          <span class="toolbar__label">선 색</span>
+          <input id="strokeColor" class="toolbar__control" type="color" value="#2f6df6" />
+        </label>
+
+        <label class="toolbar__group">
+          <span class="toolbar__label">채움</span>
+          <input id="fillEnabled" class="toolbar__control" type="checkbox" checked />
+        </label>
+
+        <label class="toolbar__group">
+          <span class="toolbar__label">채움 색</span>
+          <input id="fillColor" class="toolbar__control" type="color" value="#2f6df633" />
+        </label>
+
+        <label class="toolbar__group">
+          <span class="toolbar__label">두께</span>
+          <input
+            id="lineWidth"
+            class="toolbar__control toolbar__control--range"
+            type="range"
+            min="1"
+            max="18"
+            step="1"
+            value="3"
+          />
+          <output id="lineWidthOut" class="toolbar__output">3</output>
+        </label>
+
+        <button id="undoBtn" class="btn" type="button" title="되돌리기 (Ctrl+Z)">되돌리기</button>
+        <button id="clearBtn" class="btn btn--danger" type="button" title="전체 삭제">전체 삭제</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="stage">
+        <div class="stage__canvasWrap">
+          <canvas id="canvas" width="1200" height="720" aria-label="그리기 캔버스"></canvas>
+          <div id="hud" class="hud" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <aside class="side">
+        <div class="panel">
+          <div class="panel__title">사용법</div>
+          <ul class="help">
+            <li><b>점</b>: 클릭</li>
+            <li><b>선/사각형/원</b>: 드래그</li>
+            <li><b>다각형</b>: 클릭으로 점 추가, <b>더블클릭</b> 또는 <b>Enter</b>로 종료</li>
+            <li><b>자유곡선</b>: 드래그</li>
+            <li><b>선택/이동</b>: 도형 클릭 후 드래그, <b>Del</b>로 삭제</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <div class="panel__title">단축키</div>
+          <ul class="help">
+            <li><b>V</b> 선택, <b>P</b> 점, <b>L</b> 선, <b>C</b> 원, <b>R</b> 사각형, <b>G</b> 다각형, <b>F</b> 자유곡선</li>
+            <li><b>Ctrl+Z</b> 되돌리기</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <div class="panel__title">도형 목록</div>
+          <div id="shapeList" class="shapeList"></div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <div class="footer__hint">캔버스는 리사이즈 시 DPR(고해상도) 스케일로 선명하게 렌더링됩니다.</div>
+    </footer>
+
+    <script src="./editor_input_controller.js"></script>
+    <script src="./canvas_renderer.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
