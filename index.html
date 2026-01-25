@@ -13,15 +13,7 @@
       <div class="toolbar" role="group" aria-label="도형 그리기 도구">
         <label class="toolbar__group">
           <span class="toolbar__label">도구</span>
-          <select id="toolSelect" class="toolbar__control">
-            <option value="select">선택/이동 (V)</option>
-            <option value="point">점 (P)</option>
-            <option value="line">선 (L)</option>
-            <option value="circle">원 (C)</option>
-            <option value="rect">사각형 (R)</option>
-            <option value="polygon">다각형 (G)</option>
-            <option value="freehand">자유곡선 (F)</option>
-          </select>
+          <select id="toolSelect" class="toolbar__control"></select>
         </label>
 
         <label class="toolbar__group">
@@ -52,6 +44,13 @@
           />
           <output id="lineWidthOut" class="toolbar__output">3</output>
         </label>
+
+        <div class="toolbar__group" role="group" aria-label="확대/축소">
+          <span class="toolbar__label">확대</span>
+          <button id="zoomOutBtn" class="btn" type="button" title="축소">-</button>
+          <output id="zoomValueOut" class="toolbar__output">100%</output>
+          <button id="zoomInBtn" class="btn" type="button" title="확대">+</button>
+        </div>
 
         <button id="undoBtn" class="btn" type="button" title="되돌리기 (Ctrl+Z)">되돌리기</button>
         <button id="clearBtn" class="btn btn--danger" type="button" title="전체 삭제">전체 삭제</button>
@@ -97,6 +96,8 @@
       <div class="footer__hint">캔버스는 리사이즈 시 DPR(고해상도) 스케일로 선명하게 렌더링됩니다.</div>
     </footer>
 
+    <script src="./const.js"></script>
+    <script src="./util.js"></script>
     <script src="./editor_input_controller.js"></script>
     <script src="./canvas_renderer.js"></script>
     <script src="./app.js"></script>
