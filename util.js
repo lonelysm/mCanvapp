@@ -87,5 +87,5 @@ class Util {
     }
 }
 
-window.Util = Util;
+export { Util };
 

@@ -19,14 +19,10 @@ const EShapeKind = Object.freeze({
     FREEHAND: "freehand",
 });
 
-window.EShapeKind = EShapeKind;
-
 // 편집기 "툴" 값 (select는 도형이 아니라 편집 동작이므로 별도 상수로 둡니다)
 const EToolValue = Object.freeze({
     Select: "select",
 });
-
-window.EToolValue = EToolValue;
 
 // 툴 정의 (toolSelect 옵션 + 단축키를 data-driven으로 구성)
 // - value: toolSelect.value로 들어가는 값(문자열)
@@ -43,5 +39,5 @@ const tools = Object.freeze([
     Object.freeze({ value: EShapeKind.Freehand, display: "자유곡선", shortcut: "F" }),
 ]);
 
-window.tools = tools;
+export { EShapeKind, EToolValue, tools };
 

@@ -3,17 +3,8 @@
 // - 그리드/도형/선택 아웃라인 렌더링
 // - HUD 텍스트 업데이트
 
-window.EShapeKind ??
-    console.error("[init] EShapeKind를 찾지 못했습니다. index.html에서 const.js 로드 순서를 확인하세요.");
-if (window.EShapeKind === undefined) {
-    throw new Error("EShapeKind가 없어 실행할 수 없습니다.");
-}
-
-window.Util ??
-    console.error("[init] Util을 찾지 못했습니다. index.html에서 util.js 로드 순서를 확인하세요.");
-if (window.Util === undefined) {
-    throw new Error("Util이 없어 실행할 수 없습니다.");
-}
+import { EShapeKind } from "./const.js";
+import { Util } from "./util.js";
 
 class CanvasRenderer {
     static #instance = null;
@@ -268,6 +259,5 @@ class CanvasRenderer {
     }
 }
 
-// 전역으로 노출 (모듈 번들 없이 사용)
-window.CanvasRenderer = CanvasRenderer;
+export { CanvasRenderer };
 

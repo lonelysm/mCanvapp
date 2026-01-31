@@ -1,25 +1,8 @@
-window.Util ?? console.error("[init] Util을 찾지 못했습니다. index.html에서 util.js 로드 순서를 확인하세요.");
-if (window.Util === undefined) {
-    throw new Error("Util이 없어 실행할 수 없습니다.");
-}
-
-window.EShapeKind ??
-    console.error("[init] EShapeKind를 찾지 못했습니다. index.html에서 const.js 로드 순서를 확인하세요.");
-if (window.EShapeKind === undefined) {
-    throw new Error("EShapeKind가 없어 실행할 수 없습니다.");
-}
-
-window.EToolValue ??
-    console.error("[init] EToolValue를 찾지 못했습니다. index.html에서 const.js 로드 순서를 확인하세요.");
-if (window.EToolValue === undefined) {
-    throw new Error("EToolValue가 없어 실행할 수 없습니다.");
-}
-
-window.tools ??
-    console.error("[init] tools를 찾지 못했습니다. index.html에서 const.js 로드 순서를 확인하세요.");
-if (window.tools === undefined) {
-    throw new Error("tools가 없어 실행할 수 없습니다.");
-}
+import { EShapeKind, EToolValue, tools } from "./const.js";
+import { Util } from "./util.js";
+import { EditorInputController } from "./editor_input_controller.js";
+import { CanvasRenderer } from "./canvas_renderer.js";
+import { PointShape, LineShape, CircleShape, RectShape, PolygonShape } from "./shapes.js";
 
 function initShapeStyle() {
     const strokeColorEl = document.getElementById("strokeColor");
@@ -59,32 +42,14 @@ const undoBtnEl = Util.getRequiredEl("undoBtn");
 const clearBtnEl = Util.getRequiredEl("clearBtn");
 const shapeListEl = Util.getRequiredEl("shapeList");
 
-const toolOptionInfos = Array.isArray(window.tools) ? window.tools : [];
-
-//--------------------------------------------------
-// Get Object Instance
-//--------------------------------------------------
-const EditorInputControllerCtor = window.EditorInputController ?? null;
-EditorInputControllerCtor ??
-    console.error("[init] EditorInputController를 찾지 못했습니다. index.html에서 editor_input_controller.js 로드 순서를 확인하세요.");
-if (EditorInputControllerCtor === null) {
-    throw new Error("EditorInputController가 없어 실행할 수 없습니다.");
-}
-
-const CanvasRendererCtor = window.CanvasRenderer ?? null;
-CanvasRendererCtor ??
-    console.error("[init] CanvasRenderer를 찾지 못했습니다. index.html에서 canvas_renderer.js 로드 순서를 확인하세요.");
-if (CanvasRendererCtor === null) {
-    throw new Error("CanvasRenderer가 없어 실행할 수 없습니다.");
-}
-
-const renderer = CanvasRendererCtor.getInstance({ gridStep: 32 });
+const toolOptionInfos = tools;
+const renderer = CanvasRenderer.getInstance({ gridStep: 32 });
 
 // ---------- 상태 ----------
 
 const editorState = {
     currentTool: "line",
-    shapes: [],
+    displayShapes: [],
     undoStack: [],
     selectedId: null,
 
@@ -106,7 +71,7 @@ const editorState = {
 
 function render() {
     renderer.render({
-        shapes: editorState.shapes,
+        shapes: editorState.displayShapes,
         draftShape: editorState.draftShape,
         draftPolygon: editorState.draftPolygon,
         selectedId: editorState.selectedId,
@@ -118,11 +83,11 @@ function render() {
 }
 
 function renderShapeList() {
-    const items = editorState.shapes
+    const items = editorState.displayShapes
         .slice()
         .reverse()
         .map((s, idxFromEnd) => {
-            const idx = editorState.shapes.length - 1 - idxFromEnd;
+            const idx = editorState.displayShapes.length - 1 - idxFromEnd;
             const title = `${idx + 1}. ${shapeLabel(s)}`;
             const sub = shapeSub(s);
             const selected = editorState.selectedId === s.id;
@@ -157,7 +122,7 @@ function renderShapeList() {
         div.appendChild(meta);
         div.addEventListener("click", () => {
             editorState.selectedId = it.id;
-            setTool(window.EToolValue.Select);
+            setTool(EToolValue.Select);
         });
 
         shapeListEl.appendChild(div);
@@ -172,29 +137,14 @@ function shapeSub(shape) {
     return shape.getSubLabel ? shape.getSubLabel() : "";
 }
 
-// ---------- 좌표/히트테스트 ----------
 
-function hitTest(shape, pointerPoint) {
-    const tolerance = Math.max(6, shape.style.lineWidth + 6);
-    return shape.hitTest(pointerPoint, tolerance);
-}
-
-function pickShape(pointerPoint) {
-    // 상단(나중에 그린 것) 우선
-    for (let shapeIndex = editorState.shapes.length - 1; shapeIndex >= 0; shapeIndex--) {
-        const shape = editorState.shapes[shapeIndex];
-        if (hitTest(shape, pointerPoint)) {
-            return shape;
-        }
-    }
-    return null;
-}
 
 // ---------- 상태 변경 ----------
 
 function setTool(tool) {
     editorState.currentTool = tool;
     toolSelectEl.value = tool;
+
     if (editorState.draftPolygon !== null && tool !== EShapeKind.Polygon) {
         finalizePolygon();
     }
@@ -226,7 +176,7 @@ function getDefaultToolValue(inTools) {
 }
 
 function pushUndoSnapshot(snapshot) {
-    editorState.undoStack.push(snapshot ?? editorState.shapes.map((s) => s.clone()));
+    editorState.undoStack.push(snapshot ?? editorState.displayShapes.map((s) => s.clone()));
     if (editorState.undoStack.length > 50) {
         editorState.undoStack.shift();
     }
@@ -237,7 +187,7 @@ function undo() {
     if (!prev) {
         return;
     }
-    editorState.shapes = prev;
+    editorState.displayShapes = prev;
     editorState.selectedId = null;
     editorState.draftShape = null;
     editorState.draftPolygon = null;
@@ -246,7 +196,7 @@ function undo() {
 
 function clearAll() {
     pushUndoSnapshot();
-    editorState.shapes = [];
+    editorState.displayShapes = [];
     editorState.selectedId = null;
     editorState.draftShape = null;
     editorState.draftPolygon = null;
@@ -255,7 +205,7 @@ function clearAll() {
 
 function addShape(s) {
     pushUndoSnapshot();
-    editorState.shapes.push(s);
+    editorState.displayShapes.push(s);
     editorState.selectedId = s.id;
     render();
 }
@@ -264,12 +214,12 @@ function deleteSelected() {
     if (editorState.selectedId === null) {
         return;
     }
-    const idx = editorState.shapes.findIndex((s) => s.id === editorState.selectedId);
+    const idx = editorState.displayShapes.findIndex((s) => s.id === editorState.selectedId);
     if (idx < 0) {
         return;
     }
     pushUndoSnapshot();
-    editorState.shapes.splice(idx, 1);
+    editorState.displayShapes.splice(idx, 1);
     editorState.selectedId = null;
     render();
 }
@@ -281,13 +231,13 @@ function finalizePolygon() {
     if (editorState.draftPolygon.points.length >= 3) {
         pushUndoSnapshot();
         const draft = editorState.draftPolygon;
-        const final = new window.PolygonShape({
+        const final = new PolygonShape({
             id: draft.id,
             points: draft.points.map((p) => ({ ...p })),
             isClosed: true,
             style: draft.style,
         });
-        editorState.shapes.push(final);
+        editorState.displayShapes.push(final);
         editorState.selectedId = final.id;
     }
     editorState.draftPolygon = null;
@@ -312,10 +262,6 @@ function isDraftValid(shape) {
         );
     }
     return true;
-}
-
-function moveShape(shape, deltaX, deltaY) {
-    return shape.translate(deltaX, deltaY);
 }
 
 // ---------- 바인딩 ----------
@@ -353,45 +299,45 @@ function bindEventListeners() {
 
 // ---------- 초기 데이터 ----------
 
-function seed() {
+function defaultShapes() {
     const style1 = { stroke: "#2f6df6", lineWidth: 3, fillEnabled: true, fill: "rgba(47,109,246,0.20)" };
     const style2 = { stroke: "#32d583", lineWidth: 4, fillEnabled: true, fill: "rgba(50,213,131,0.20)" };
     const style3 = { stroke: "#ffb020", lineWidth: 3, fillEnabled: false, fill: "rgba(0,0,0,0)" };
 
-    editorState.shapes.push(
-        new window.RectShape({
+    editorState.displayShapes.push(
+        new RectShape({
             id: Util.uid("rc"),
             start: { x: 120, y: 100 },
             end: { x: 420, y: 280 },
             style: style1,
         })
     );
-    editorState.shapes.push(
-        new window.CircleShape({
+    editorState.displayShapes.push(
+        new CircleShape({
             id: Util.uid("ci"),
             center: { x: 650, y: 220 },
             radius: 90,
             style: style2,
         })
     );
-    editorState.shapes.push(
-        new window.LineShape({
+    editorState.displayShapes.push(
+        new LineShape({
             id: Util.uid("ln"),
             start: { x: 160, y: 420 },
             end: { x: 520, y: 540 },
             style: style3,
         })
     );
-    editorState.shapes.push(
-        new window.PointShape({
+    editorState.displayShapes.push(
+        new PointShape({
             id: Util.uid("pt"),
             position: { x: 820, y: 420 },
             radius: 6,
             style: { ...style3, stroke: "#ff4d4d" },
         })
     );
-    editorState.shapes.push(
-        new window.PolygonShape({
+    editorState.displayShapes.push(
+        new PolygonShape({
             id: Util.uid("poly"),
             points: [
                 { x: 880, y: 120 },
@@ -418,28 +364,26 @@ function main() {
         bindEventListeners();
 
         const editorService = {
-                initShapeStyle,
-                render,
-                setTool,
-                pickShape,
-                addShape,
-                moveShape,
-                finalizePolygon,
-                deleteSelected,
-                undo,
-                pushUndoSnapshot,
-                isDraftValid,
-                uid: Util.uid,
+            initShapeStyle,
+            render,
+            setTool,
+            addShape,
+            finalizePolygon,
+            deleteSelected,
+            undo,
+            pushUndoSnapshot,
+            isDraftValid,
+            uid: Util.uid,
         };
 
-        const inputController = EditorInputControllerCtor.getInstance({
-                state: editorState,
-                toolOptionInfos,
-                service: editorService,
+        const inputController = EditorInputController.getInstance({
+            state: editorState,
+            toolOptionInfos,
+            service: editorService,
         });
         inputController.attach();
 
-        seed();
+        defaultShapes();
         render();
         window.addEventListener("resize", () => render());
 }

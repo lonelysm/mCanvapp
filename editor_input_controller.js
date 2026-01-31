@@ -1,17 +1,9 @@
 // 마우스(포인터) + 키보드 입력 컨트롤러
 // - app.js의 상태/도형 로직을 호출하여 편집 동작을 수행
 
-window.EShapeKind ??
-    console.error("[init] EShapeKind를 찾지 못했습니다. index.html에서 const.js 로드 순서를 확인하세요.");
-if (window.EShapeKind === undefined) {
-    throw new Error("EShapeKind가 없어 실행할 수 없습니다.");
-}
-
-window.Util ??
-    console.error("[init] Util을 찾지 못했습니다. index.html에서 util.js 로드 순서를 확인하세요.");
-if (window.Util === undefined) {
-    throw new Error("Util이 없어 실행할 수 없습니다.");
-}
+import { EShapeKind } from "./const.js";
+import { Util } from "./util.js";
+import { PointShape, LineShape, CircleShape, RectShape, PolygonShape, FreehandShape } from "./shapes.js";
 
 class EditorInputController {
     static #instance = null;
@@ -71,11 +63,95 @@ class EditorInputController {
     }
 
     getCanvasPointFromEvent = (event) => {
-                const rect = canvasEl.getBoundingClientRect();
-                const scale = Number(editorState.viewScale) || 1;
-                return { x: (event.clientX - rect.left) / scale, y: (event.clientY - rect.top) / scale };
-        };
+        const rect = this.canvasElement.getBoundingClientRect();
+        const scale = Number(this.state.viewScale) || 1;
+        return { x: (event.clientX - rect.left) / scale, y: (event.clientY - rect.top) / scale };
+    };
 
+    /** 도구 + 시작점 + 스타일로 초기 draft 생성 (line/circle/rect/freehand만) */
+    createDraftShape(tool, pointerPoint, style) {
+        if (tool === "line") {
+            return new LineShape({
+                id: this.service.uid("ln"),
+                start: pointerPoint,
+                end: pointerPoint,
+                style,
+            });
+        }
+        if (tool === "circle") {
+            return new CircleShape({
+                id: this.service.uid("ci"),
+                center: pointerPoint,
+                radius: 0,
+                style,
+            });
+        }
+        if (tool === "rect") {
+            return new RectShape({
+                id: this.service.uid("rc"),
+                start: pointerPoint,
+                end: pointerPoint,
+                style,
+            });
+        }
+        if (tool === "freehand") {
+            return new FreehandShape({
+                id: this.service.uid("fh"),
+                points: [pointerPoint],
+                style,
+            });
+        }
+        return null;
+    }
+
+    /** 현재 draft를 포인터 위치로 직접 수정 (end/radius/points만 갱신). */
+    updateDraftShape(draft, pointerPoint) {
+        const p = { x: pointerPoint.x, y: pointerPoint.y };
+        if (draft.kind === EShapeKind.LINE) {
+            draft.end = p;
+            return;
+        }
+        if (draft.kind === EShapeKind.RECT) {
+            draft.end = p;
+            return;
+        }
+        if (draft.kind === EShapeKind.CIRCLE) {
+            draft.radius = Math.hypot(pointerPoint.x - draft.center.x, pointerPoint.y - draft.center.y);
+            return;
+        }
+        if (draft.kind === EShapeKind.FREEHAND) {
+            const lastPoint = draft.points[draft.points.length - 1] ?? null;
+            lastPoint ?? console.warn("[freehand] last 포인트가 없습니다.");
+            if (lastPoint) {
+                const stepDistance = Math.hypot(pointerPoint.x - lastPoint.x, pointerPoint.y - lastPoint.y);
+                if (stepDistance >= 1.5) {
+                    draft.points.push(p);
+                }
+            }
+        }
+    }
+
+    // ---------- 좌표/히트테스트 ----------
+    hitTest(shape, pointerPoint) {
+        const tolerance = Math.max(6, shape.style.lineWidth + 6);
+        return shape.hitTest(pointerPoint, tolerance);
+    }
+
+    pickShape(pointerPoint) {
+        // 상단(나중에 그린 것) 우선
+        for (let shapeIndex = this.state.displayShapes.length - 1; shapeIndex >= 0; shapeIndex--) {
+            const shape = this.state.displayShapes[shapeIndex];
+            if (this.hitTest(shape, pointerPoint)) {
+                return shape;
+            }
+        }
+        return null;
+    }
+
+    moveShape(shape, deltaX, deltaY) {
+        return shape.translate(deltaX, deltaY);
+    }
+    
     onPointerDown(e) {
         this.state.isPointerDown = true;
         this.state.pointerDownPos = this.getCanvasPointFromEvent(e);
@@ -86,15 +162,15 @@ class EditorInputController {
         const pointerDownPoint = this.state.pointerDownPos;
 
         if (this.state.currentTool === "select") {
-            const hit = this.service.pickShape(pointerDownPoint);
+            const hit = this.pickShape(pointerDownPoint);
             this.state.selectedId = hit ? hit.id : null;
             this.state.dragStart = pointerDownPoint;
             this.state.dragOriginal = new Map();
             this.state.dragShapesSnapshot =
-                this.state.selectedId ? this.state.shapes.map((s) => s.clone()) : null;
+                this.state.selectedId ? this.state.displayShapes.map((s) => s.clone()) : null;
 
             if (this.state.selectedId !== null) {
-                const selectedShapeCandidate = this.state.shapes.find((shape) => shape.id === this.state.selectedId) ?? null;
+                const selectedShapeCandidate = this.state.displayShapes.find((shape) => shape.id === this.state.selectedId) ?? null;
                 selectedShapeCandidate ?? console.warn("[select] 선택된 도형을 찾지 못했습니다.");
                 if (selectedShapeCandidate) {
                     this.state.dragOriginal.set(selectedShapeCandidate.id, selectedShapeCandidate.clone());
@@ -107,7 +183,7 @@ class EditorInputController {
 
         if (this.state.currentTool === "point") {
             this.service.addShape(
-                new window.PointShape({
+                new PointShape({
                     id: this.service.uid("pt"),
                     position: pointerDownPoint,
                     radius: Math.max(2, style.lineWidth + 1),
@@ -119,7 +195,7 @@ class EditorInputController {
 
         if (this.state.currentTool === "polygon") {
             if (this.state.draftPolygon === null) {
-                this.state.draftPolygon = new window.PolygonShape({
+                this.state.draftPolygon = new PolygonShape({
                     id: this.service.uid("poly"),
                     points: [pointerDownPoint],
                     isClosed: false,
@@ -132,52 +208,16 @@ class EditorInputController {
             return;
         }
 
-        if (this.state.currentTool === "line") {
-            this.state.draftShape = new window.LineShape({
-                id: this.service.uid("ln"),
-                start: pointerDownPoint,
-                end: pointerDownPoint,
-                style,
-            });
-            this.service.render();
-            return;
-        }
-
-        if (this.state.currentTool === "circle") {
-            this.state.draftShape = new window.CircleShape({
-                id: this.service.uid("ci"),
-                center: pointerDownPoint,
-                radius: 0,
-                style,
-            });
-            this.service.render();
-            return;
-        }
-
-        if (this.state.currentTool === "rect") {
-            this.state.draftShape = new window.RectShape({
-                id: this.service.uid("rc"),
-                start: pointerDownPoint,
-                end: pointerDownPoint,
-                style,
-            });
-            this.service.render();
-            return;
-        }
-
-        if (this.state.currentTool === "freehand") {
-            this.state.draftShape = new window.FreehandShape({
-                id: this.service.uid("fh"),
-                points: [pointerDownPoint],
-                style,
-            });
+        const draft = this.createDraftShape(this.state.currentTool, pointerDownPoint, style);
+        if (draft !== null) {
+            this.state.draftShape = draft;
             this.service.render();
             return;
         }
     }
 
     onPointerMove(e) {
-        this.state.pointerPos = this.service.getCanvasPointFromEvent(e);
+        this.state.pointerPos = this.getCanvasPointFromEvent(e);
 
         if (!this.state.isPointerDown) {
             this.service.render();
@@ -203,10 +243,10 @@ class EditorInputController {
 
             const deltaX = pointerPoint.x - this.state.dragStart.x;
             const deltaY = pointerPoint.y - this.state.dragStart.y;
-            const movedShape = this.service.moveShape(original, deltaX, deltaY);
+            const movedShape = this.moveShape(original, deltaX, deltaY);
             const shapeIndex = this.state.shapes.findIndex((shape) => shape.id === this.state.selectedId);
             if (shapeIndex >= 0) {
-                this.state.shapes[shapeIndex] = movedShape;
+                this.state.displayShapes[shapeIndex] = movedShape;
             }
             this.service.render();
             return;
@@ -217,47 +257,7 @@ class EditorInputController {
             return;
         }
 
-        const draft = this.state.draftShape;
-        if (draft.kind === EShapeKind.LINE) {
-            this.state.draftShape = new window.LineShape({
-                id: draft.id,
-                start: draft.start,
-                end: pointerPoint,
-                style: draft.style,
-            });
-        } else if (draft.kind === EShapeKind.RECT) {
-            this.state.draftShape = new window.RectShape({
-                id: draft.id,
-                start: draft.start,
-                end: pointerPoint,
-                style: draft.style,
-            });
-        } else if (draft.kind === EShapeKind.CIRCLE) {
-            const circleCenter = draft.center;
-            const radius = Math.hypot(pointerPoint.x - circleCenter.x, pointerPoint.y - circleCenter.y);
-            this.state.draftShape = new window.CircleShape({
-                id: draft.id,
-                center: draft.center,
-                radius,
-                style: draft.style,
-            });
-        } else if (draft.kind === EShapeKind.FREEHAND) {
-            const points = draft.points.slice();
-            const lastPoint = points[points.length - 1] ?? null;
-            lastPoint ?? console.warn("[freehand] last 포인트가 없습니다.");
-            if (lastPoint) {
-                const stepDistance = Math.hypot(pointerPoint.x - lastPoint.x, pointerPoint.y - lastPoint.y);
-                if (stepDistance >= 1.5) {
-                    points.push(pointerPoint);
-                }
-            }
-            this.state.draftShape = new window.FreehandShape({
-                id: draft.id,
-                points,
-                style: draft.style,
-            });
-        }
-
+        this.updateDraftShape(this.state.draftShape, pointerPoint);
         this.service.render();
     }
 
@@ -267,7 +267,7 @@ class EditorInputController {
 
         if (this.state.currentTool === "select") {
             if (this.state.selectedId !== null && this.state.dragShapesSnapshot !== null) {
-                const now = this.state.shapes.find((shape) => shape.id === this.state.selectedId) ?? null;
+                const now = this.state.displayShapes.find((shape) => shape.id === this.state.selectedId) ?? null;
                 const original = this.state.dragOriginal.get(this.state.selectedId) ?? null;
                 if (now && original) {
                     const changed = JSON.stringify(now) !== JSON.stringify(original);
@@ -329,6 +329,5 @@ class EditorInputController {
     }
 }
 
-// 전역으로 노출
-window.EditorInputController = EditorInputController;
+export { EditorInputController };
 
