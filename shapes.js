@@ -8,12 +8,12 @@ class BaseShape {
     constructor(options) {
         this.id = options.id ?? "";
         this.kind = options.kind ?? "";
-        this._displayName = options.displayName ?? "??";
+        this._displayName = options.displayName ?? "도형";
         this.style = options.style ?? { stroke: "#2f6df6", lineWidth: 3, fillEnabled: true, fill: "rgba(47,109,246,0.20)" };
     }
 
     get displayName() {
-        return this._displayName ?? "??";
+        return this._displayName ?? "도형";
     }
 
     getPosition() {
@@ -35,11 +35,14 @@ class BaseShape {
     getSubLabel() {
         return "";
     }
+
+    // 다각형만 구현
+    finalize() {}
 }
 
 class PointShape extends BaseShape {
     constructor(options) {
-        super({ ...options, kind: EShapeKind.POINT, displayName: "?" });
+        super({ ...options, kind: EShapeKind.POINT, displayName: "점" });
         this.position = options.position ?? { x: 0, y: 0 };
         this.radius = options.radius ?? 4;
     }
@@ -77,7 +80,7 @@ class PointShape extends BaseShape {
 
 class LineShape extends BaseShape {
     constructor(options) {
-        super({ ...options, kind: EShapeKind.LINE, displayName: "?" });
+        super({ ...options, kind: EShapeKind.LINE, displayName: "선" });
         this.start = options.start ?? { x: 0, y: 0 };
         this.end = options.end ?? { x: 0, y: 0 };
     }
@@ -118,7 +121,7 @@ class LineShape extends BaseShape {
 
 class CircleShape extends BaseShape {
     constructor(options) {
-        super({ ...options, kind: EShapeKind.CIRCLE, displayName: "?" });
+        super({ ...options, kind: EShapeKind.CIRCLE, displayName: "원" });
         this.center = options.center ?? { x: 0, y: 0 };
         this.radius = options.radius ?? 0;
     }
@@ -161,7 +164,7 @@ class CircleShape extends BaseShape {
 
 class RectShape extends BaseShape {
     constructor(options) {
-        super({ ...options, kind: EShapeKind.RECT, displayName: "???" });
+        super({ ...options, kind: EShapeKind.RECT, displayName: "사각형" });
         this.start = options.start ?? { x: 0, y: 0 };
         this.end = options.end ?? { x: 0, y: 0 };
     }
@@ -218,13 +221,13 @@ class RectShape extends BaseShape {
 
 class PolygonShape extends BaseShape {
     constructor(options) {
-        super({ ...options, kind: EShapeKind.POLYGON, displayName: "???" });
+        super({ ...options, kind: EShapeKind.POLYGON, displayName: "다각형" });
         this.points = options.points ? options.points.map((p) => ({ ...p })) : [];
         this.isClosed = options.isClosed ?? false;
     }
 
     get displayName() {
-        return this.isClosed ? "???" : "???(???)";
+        return this.isClosed ? "다각형" : "다각형(작성중)";
     }
 
     getPosition() {
@@ -273,13 +276,15 @@ class PolygonShape extends BaseShape {
     }
 
     getSubLabel() {
-        return `? ${this.points.length}?`;
+        return `점 ${this.points.length}개`;
     }
+
+    finalize() {}
 }
 
 class FreehandShape extends BaseShape {
     constructor(options) {
-        super({ ...options, kind: EShapeKind.FREEHAND, displayName: "????" });
+        super({ ...options, kind: EShapeKind.FREEHAND, displayName: "자유곡선" });
         this.points = options.points ? options.points.map((p) => ({ ...p })) : [];
     }
 
@@ -316,7 +321,7 @@ class FreehandShape extends BaseShape {
     }
 
     getSubLabel() {
-        return `? ${this.points.length}?`;
+        return `점 ${this.points.length}개`;
     }
 }
 

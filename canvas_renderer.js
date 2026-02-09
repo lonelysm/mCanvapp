@@ -51,10 +51,11 @@ class CanvasRenderer {
         return devicePixelRatio;
     }
 
-    // state: { shapes, draftShape, draftPolygon, selectedId, pointerPos, currentTool }
-    render(state) {
+    // state: { shapes|displayShapes, draftShape, draftPolygon, selectedId, pointerPos, currentTool }
+    render(editorState) {
+        const displayShapes = editorState.displayShapes ?? [];
         const devicePixelRatio = this.resizeToDisplaySize();
-        const viewScale = typeof state.viewScale === "number" && Number.isFinite(state.viewScale) ? state.viewScale : 1;
+        const viewScale = typeof editorState.viewScale === "number" && Number.isFinite(editorState.viewScale) ? editorState.viewScale : 1;
 
         const canvasRectWidth = this.canvas.getBoundingClientRect().width;
         const canvasRectHeight = this.canvas.getBoundingClientRect().height;
@@ -68,20 +69,22 @@ class CanvasRenderer {
         const worldH = canvasRectHeight / viewScale;
         this._drawGrid(worldW, worldH);
 
-        for (const shape of state.shapes) this._drawShape(shape);
-        if (state.draftShape !== null) {
-            this._drawShape(state.draftShape);
+        for (const shape of displayShapes)
+            this._drawShape(shape);
+
+        if (editorState.draftShape !== null) {
+            this._drawShape(editorState.draftShape);
         }
-        if (state.draftPolygon !== null) {
-            this._drawShape(state.draftPolygon);
+        if (editorState.draftPolygon !== null) {
+            this._drawShape(editorState.draftPolygon);
         }
 
-        const selectedShape = state.selectedId ? state.shapes.find((shape) => shape.id === state.selectedId) : null;
+        const selectedShape = editorState.selectedId ? displayShapes.find((shape) => shape.id === editorState.selectedId) : null;
         if (selectedShape !== null) {
             this._drawSelectionOutline(selectedShape);
         }
 
-        this._updateHud(state);
+        this._updateHud(editorState);
     }
 
     _applyStyle(style) {
@@ -244,18 +247,18 @@ class CanvasRenderer {
         this.screenCtx.restore();
     }
 
-    _updateHud(state) {
+    _updateHud(inEditorState) {
         if (this.hud === null) {
             return;
         }
-        const pointerPosition = state.pointerPos;
+        const pointerPosition = inEditorState.pointerPos;
         const posText = pointerPosition ? `${Math.round(pointerPosition.x)}, ${Math.round(pointerPosition.y)}` : "-";
-        const countText = `${state.shapes.length}개`;
-        const selText = state.selectedId ? "선택됨" : "없음";
-        const polyText = state.draftPolygon ? `다각형 점 ${state.draftPolygon.points.length}개` : "";
-        const viewScale = typeof state.viewScale === "number" && Number.isFinite(state.viewScale) ? state.viewScale : 1;
+        const countText = `${inEditorState.displayShapes.length}개`;
+        const selText = inEditorState.selectedId ? "선택됨" : "없음";
+        const polyText = inEditorState.draftPolygon ? `다각형 점 ${inEditorState.draftPolygon.points.length}개` : "";
+        const viewScale = typeof inEditorState.viewScale === "number" && Number.isFinite(inEditorState.viewScale) ? inEditorState.viewScale : 1;
         const zoomText = `${Math.round(viewScale * 100)}%`;
-        this.hud.textContent = `도구: ${state.currentTool} | 줌: ${zoomText} | 포인터: ${posText} | 도형: ${countText} | 선택: ${selText} ${polyText}`;
+        this.hud.textContent = `도구: ${inEditorState.currentTool} | 줌: ${zoomText} | 포인터: ${posText} | 도형: ${countText} | 선택: ${selText} ${polyText}`;
     }
 }
 

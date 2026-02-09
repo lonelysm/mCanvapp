@@ -1,8 +1,9 @@
 // 마우스(포인터) + 키보드 입력 컨트롤러
-// - app.js의 상태/도형 로직을 호출하여 편집 동작을 수행
+// bindApp(app)으로 CanvaApp에 연결한 뒤, 이벤트 시 app 멤버 호출
 
 import { EShapeKind } from "./const.js";
 import { Util } from "./util.js";
+import { TopMenu } from "./top_menu.js";
 import { PointShape, LineShape, CircleShape, RectShape, PolygonShape, FreehandShape } from "./shapes.js";
 
 class EditorInputController {
@@ -10,7 +11,7 @@ class EditorInputController {
 
     static getInstance(args) {
         if (EditorInputController.#instance === null) {
-            EditorInputController.#instance = new EditorInputController(args);
+            EditorInputController.#instance = new EditorInputController(args ?? {});
         }
         return EditorInputController.#instance;
     }
@@ -21,7 +22,12 @@ class EditorInputController {
         }
 
         this.canvasElement = Util.getRequiredEl("canvas");
-        this.state = args.state;
+        this.app = null;
+        this.state = null;
+
+        this.pointerPos = null;
+        this.pointerDownPos = null;
+        this.isPointerDown = false;
 
         const toolOptionInfosCandidate = args.toolOptionInfos ?? null;
         this.toolOptionInfos = Array.isArray(toolOptionInfosCandidate) ? toolOptionInfosCandidate : [];
@@ -35,8 +41,6 @@ class EditorInputController {
             this.shortcutToToolValue.set(key, tool.value);
         }
 
-        this.service = args.service ?? null;
-
         this.onPointerDownBound = (e) => this.onPointerDown(e);
         this.onPointerMoveBound = (e) => this.onPointerMove(e);
         this.onPointerUpBound = (e) => this.onPointerUp(e);
@@ -46,7 +50,16 @@ class EditorInputController {
         EditorInputController.#instance = this;
     }
 
-    attach() {
+    bindApp(app) {
+        this.app = app;
+        this.state = app !== null ? app.getState() : null;
+    }
+
+    getPointerPos() {
+        return this.pointerPos;
+    }
+
+    bindEventListeners() {
         this.canvasElement.addEventListener("pointerdown", this.onPointerDownBound);
         this.canvasElement.addEventListener("pointermove", this.onPointerMoveBound);
         this.canvasElement.addEventListener("pointerup", this.onPointerUpBound);
@@ -54,7 +67,7 @@ class EditorInputController {
         window.addEventListener("keydown", this.onKeyDownBound);
     }
 
-    dispose() {
+     unbindEventListeners() {
         this.canvasElement.removeEventListener("pointerdown", this.onPointerDownBound);
         this.canvasElement.removeEventListener("pointermove", this.onPointerMoveBound);
         this.canvasElement.removeEventListener("pointerup", this.onPointerUpBound);
@@ -63,16 +76,21 @@ class EditorInputController {
     }
 
     getCanvasPointFromEvent = (event) => {
+        const state = this.state ?? this.app?.getState() ?? null;
+        const scale = state !== null ? Number(state.viewScale) || 1 : 1;
         const rect = this.canvasElement.getBoundingClientRect();
-        const scale = Number(this.state.viewScale) || 1;
         return { x: (event.clientX - rect.left) / scale, y: (event.clientY - rect.top) / scale };
     };
 
     /** 도구 + 시작점 + 스타일로 초기 draft 생성 (line/circle/rect/freehand만) */
     createDraftShape(tool, pointerPoint, style) {
+        const app = this.app;
+        if (app === null) {
+            return null;
+        }
         if (tool === "line") {
             return new LineShape({
-                id: this.service.uid("ln"),
+                id: app.uid("ln"),
                 start: pointerPoint,
                 end: pointerPoint,
                 style,
@@ -80,7 +98,7 @@ class EditorInputController {
         }
         if (tool === "circle") {
             return new CircleShape({
-                id: this.service.uid("ci"),
+                id: app.uid("ci"),
                 center: pointerPoint,
                 radius: 0,
                 style,
@@ -88,7 +106,7 @@ class EditorInputController {
         }
         if (tool === "rect") {
             return new RectShape({
-                id: this.service.uid("rc"),
+                id: app.uid("rc"),
                 start: pointerPoint,
                 end: pointerPoint,
                 style,
@@ -96,7 +114,7 @@ class EditorInputController {
         }
         if (tool === "freehand") {
             return new FreehandShape({
-                id: this.service.uid("fh"),
+                id: app.uid("fh"),
                 points: [pointerPoint],
                 style,
             });
@@ -138,9 +156,13 @@ class EditorInputController {
     }
 
     pickShape(pointerPoint) {
+        const state = this.state;
+        if (state === null) {
+            return null;
+        }
         // 상단(나중에 그린 것) 우선
-        for (let shapeIndex = this.state.displayShapes.length - 1; shapeIndex >= 0; shapeIndex--) {
-            const shape = this.state.displayShapes[shapeIndex];
+        for (let shapeIndex = state.displayShapes.length - 1; shapeIndex >= 0; shapeIndex--) {
+            const shape = state.displayShapes[shapeIndex];
             if (this.hitTest(shape, pointerPoint)) {
                 return shape;
             }
@@ -153,38 +175,43 @@ class EditorInputController {
     }
     
     onPointerDown(e) {
-        this.state.isPointerDown = true;
-        this.state.pointerDownPos = this.getCanvasPointFromEvent(e);
-        this.state.pointerPos = this.state.pointerDownPos;
+        const state = this.state;
+        const app = this.app;
+        if (state === null || app === null) {
+            return;
+        }
+        this.isPointerDown = true;
+        this.pointerDownPos = this.getCanvasPointFromEvent(e);
+        this.pointerPos = this.pointerDownPos;
         this.canvasElement.setPointerCapture(e.pointerId);
 
-        const style = this.service.initShapeStyle();
-        const pointerDownPoint = this.state.pointerDownPos;
+        const style = app.initShapeStyle();
+        const pointerDownPoint = this.pointerDownPos;
 
-        if (this.state.currentTool === "select") {
+        if (state.currentTool === "select") {
             const hit = this.pickShape(pointerDownPoint);
-            this.state.selectedId = hit ? hit.id : null;
-            this.state.dragStart = pointerDownPoint;
-            this.state.dragOriginal = new Map();
-            this.state.dragShapesSnapshot =
-                this.state.selectedId ? this.state.displayShapes.map((s) => s.clone()) : null;
+            state.selectedId = hit ? hit.id : null;
+            state.dragStart = pointerDownPoint;
+            state.dragOriginal = new Map();
+            state.dragShapesSnapshot =
+                state.selectedId ? state.displayShapes.map((s) => s.clone()) : null;
 
-            if (this.state.selectedId !== null) {
-                const selectedShapeCandidate = this.state.displayShapes.find((shape) => shape.id === this.state.selectedId) ?? null;
+            if (state.selectedId !== null) {
+                const selectedShapeCandidate = state.displayShapes.find((shape) => shape.id === state.selectedId) ?? null;
                 selectedShapeCandidate ?? console.warn("[select] 선택된 도형을 찾지 못했습니다.");
                 if (selectedShapeCandidate) {
-                    this.state.dragOriginal.set(selectedShapeCandidate.id, selectedShapeCandidate.clone());
+                    state.dragOriginal.set(selectedShapeCandidate.id, selectedShapeCandidate.clone());
                 }
             }
 
-            this.service.render();
+            app.render();
             return;
         }
 
-        if (this.state.currentTool === "point") {
-            this.service.addShape(
+        if (state.currentTool === "point") {
+            app.addShape(
                 new PointShape({
-                    id: this.service.uid("pt"),
+                    id: app.uid("pt"),
                     position: pointerDownPoint,
                     radius: Math.max(2, style.lineWidth + 1),
                     style,
@@ -193,138 +220,149 @@ class EditorInputController {
             return;
         }
 
-        if (this.state.currentTool === "polygon") {
-            if (this.state.draftPolygon === null) {
-                this.state.draftPolygon = new PolygonShape({
-                    id: this.service.uid("poly"),
+        if (state.currentTool === "polygon") {
+            if (state.draftPolygon === null) {
+                state.draftPolygon = new PolygonShape({
+                    id: app.uid("poly"),
                     points: [pointerDownPoint],
                     isClosed: false,
                     style,
                 });
             } else {
-                this.state.draftPolygon.points.push(pointerDownPoint);
+                state.draftPolygon.points.push(pointerDownPoint);
             }
-            this.service.render();
+            app.render();
             return;
         }
 
-        const draft = this.createDraftShape(this.state.currentTool, pointerDownPoint, style);
+        const draft = this.createDraftShape(state.currentTool, pointerDownPoint, style);
         if (draft !== null) {
-            this.state.draftShape = draft;
-            this.service.render();
-            return;
+            state.draftShape = draft;
+            app.render();
         }
     }
 
     onPointerMove(e) {
-        this.state.pointerPos = this.getCanvasPointFromEvent(e);
+        const state = this.state;
+        const app = this.app;
+        this.pointerPos = this.getCanvasPointFromEvent(e);
 
-        if (!this.state.isPointerDown) {
-            this.service.render();
+        if (!this.isPointerDown) {
+            app?.render();
             return;
         }
-        if (this.state.pointerDownPos === null) {
+        if (this.pointerDownPos === null || state === null || app === null) {
             return;
         }
 
-        const pointerPoint = this.state.pointerPos;
+        const pointerPoint = this.pointerPos;
 
-        if (this.state.currentTool === "select") {
-            if (this.state.selectedId === null || this.state.dragStart === null) {
-                this.service.render();
+        if (state.currentTool === "select") {
+            if (state.selectedId === null || state.dragStart === null) {
+                app.render();
                 return;
             }
 
-            const original = this.state.dragOriginal.get(this.state.selectedId) ?? null;
+            const original = state.dragOriginal.get(state.selectedId) ?? null;
             original ?? console.warn("[drag] 원본 스냅샷을 찾지 못했습니다.");
             if (!original) {
                 return;
             }
 
-            const deltaX = pointerPoint.x - this.state.dragStart.x;
-            const deltaY = pointerPoint.y - this.state.dragStart.y;
+            const deltaX = pointerPoint.x - state.dragStart.x;
+            const deltaY = pointerPoint.y - state.dragStart.y;
             const movedShape = this.moveShape(original, deltaX, deltaY);
-            const shapeIndex = this.state.shapes.findIndex((shape) => shape.id === this.state.selectedId);
+            const shapeIndex = state.displayShapes.findIndex((shape) => shape.id === state.selectedId);
             if (shapeIndex >= 0) {
-                this.state.displayShapes[shapeIndex] = movedShape;
+                state.displayShapes[shapeIndex] = movedShape;
             }
-            this.service.render();
+            app.render();
             return;
         }
 
-        if (this.state.draftShape === null) {
-            this.service.render();
+        if (state.draftShape === null) {
+            app.render();
             return;
         }
 
-        this.updateDraftShape(this.state.draftShape, pointerPoint);
-        this.service.render();
+        this.updateDraftShape(state.draftShape, pointerPoint);
+        app.render();
     }
 
     onPointerUp(e) {
-        this.state.isPointerDown = false;
+        const state = this.state;
+        const app = this.app;
+        this.isPointerDown = false;
         this.canvasElement.releasePointerCapture(e.pointerId);
 
-        if (this.state.currentTool === "select") {
-            if (this.state.selectedId !== null && this.state.dragShapesSnapshot !== null) {
-                const now = this.state.displayShapes.find((shape) => shape.id === this.state.selectedId) ?? null;
-                const original = this.state.dragOriginal.get(this.state.selectedId) ?? null;
+        if (state === null || app === null) {
+            return;
+        }
+
+        if (state.currentTool === "select") {
+            if (state.selectedId !== null && state.dragShapesSnapshot !== null) {
+                const now = state.displayShapes.find((shape) => shape.id === state.selectedId) ?? null;
+                const original = state.dragOriginal.get(state.selectedId) ?? null;
                 if (now && original) {
                     const changed = JSON.stringify(now) !== JSON.stringify(original);
                     if (changed) {
-                        this.service.pushUndoSnapshot(this.state.dragShapesSnapshot);
+                        app.pushUndoSnapshot(state.dragShapesSnapshot);
                     }
                 }
             }
 
-            this.state.dragStart = null;
-            this.state.dragShapesSnapshot = null;
-            this.state.dragOriginal = new Map();
-            this.service.render();
+            state.dragStart = null;
+            state.dragShapesSnapshot = null;
+            state.dragOriginal = new Map();
+            app.render();
             return;
         }
 
-        if (this.state.draftShape !== null) {
-            if (this.service.isDraftValid(this.state.draftShape)) {
-                this.service.addShape(this.state.draftShape);
+        if (state.draftShape !== null) {
+            if (app.isDraftValid(state.draftShape)) {
+                app.addShape(state.draftShape);
             }
-            this.state.draftShape = null;
-            this.service.render();
+            state.draftShape = null;
+            app.render();
         }
     }
 
     onDoubleClick(e) {
-        if (this.state.currentTool !== "polygon") {
+        const state = this.state;
+        const app = this.app;
+        if (state === null || state.currentTool !== "polygon") {
             return;
         }
         e.preventDefault();
-        this.service.finalizePolygon();
+        app?.finalizePolygon();
     }
 
     onKeyDown(e) {
+        const state = this.state;
+        const app = this.app;
         const key = e.key.toLowerCase();
 
         if ((e.ctrlKey || e.metaKey) && key === "z") {
             e.preventDefault();
-            this.service.undo();
+            app?.undo();
             return;
         }
 
         if (key === "delete" || key === "backspace") {
-            if (this.state.currentTool === "select") {
-                this.service.deleteSelected();
+            if (state?.currentTool === "select") {
+                app?.deleteSelected();
             }
             return;
         }
 
-        if (key === "enter" && this.state.currentTool === "polygon") {
-            this.service.finalizePolygon();
+        if (key === "enter" && state?.currentTool === "polygon") {
+            app?.finalizePolygon();
             return;
         }
 
         const toolValue = this.shortcutToToolValue.get(key) ?? null;
         if (toolValue !== null) {
-            this.service.setTool(toolValue);
+            TopMenu.getInstance().setTool(toolValue);
         }
     }
 }

@@ -85,6 +85,69 @@ class Util {
         }
         return el;
     }
+
+    /**
+     * descriptor로 DOM 요소 생성.
+     * @param {Object} descriptor - { tag?, id?, className?, type?, value?, ...attrs, children? }
+     * @returns {HTMLElement}
+     */
+    static createElement(descriptor) {
+        const tag = typeof descriptor.tag === "string" ? descriptor.tag : "div";
+        const el = document.createElement(tag);
+
+        const reserved = ["tag", "children"];
+        for (const key of Object.keys(descriptor)) {
+            if (reserved.includes(key)) {
+                continue;
+            }
+            const value = descriptor[key];
+            if (value === undefined || value === null) {
+                continue;
+            }
+            if (key === "className") {
+                el.setAttribute("class", value);
+                continue;
+            }
+            if (key === "ariaLabel") {
+                el.setAttribute("aria-label", value);
+                continue;
+            }
+            if (key === "htmlFor") {
+                el.setAttribute("for", value);
+                continue;
+            }
+            if (key === "textContent") {
+                el.textContent = value;
+                continue;
+            }
+            if (key === "checked") {
+                el.checked = Boolean(value);
+                continue;
+            }
+            if (key === "value" && (tag === "input" || tag === "output")) {
+                el.value = value;
+                continue;
+            }
+            if (key === "type" && (tag === "input" || tag === "button")) {
+                el.setAttribute("type", tag === "button" ? "button" : value);
+                continue;
+            }
+            el.setAttribute(key, String(value));
+        }
+
+        const children = descriptor.children;
+        if (Array.isArray(children)) {
+            for (const child of children) {
+                if (child instanceof Node) {
+                    el.appendChild(child);
+                } else if (child !== undefined && child !== null) {
+                    el.appendChild(Util.createElement(child));
+                }
+            }
+        }
+
+        return el;
+    }
 }
 
 export { Util };

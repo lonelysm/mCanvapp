@@ -10,51 +10,8 @@
         <header class="topbar">
             <div class="topbar__title">Canvas Draw Sample</div>
 
-            <div class="toolbar" role="group" aria-label="도형 그리기 도구">
-                <label class="toolbar__group">
-                    <span class="toolbar__label">도구</span>
-                    <select id="toolSelect" class="toolbar__control"></select>
-                </label>
-
-                <label class="toolbar__group">
-                    <span class="toolbar__label">선 색</span>
-                    <input id="strokeColor" class="toolbar__control" type="color" value="#2f6df6" />
-                </label>
-
-                <label class="toolbar__group">
-                    <span class="toolbar__label">채움</span>
-                    <input id="fillEnabled" class="toolbar__control" type="checkbox" checked />
-                </label>
-
-                <label class="toolbar__group">
-                    <span class="toolbar__label">채움 색</span>
-                    <input id="fillColor" class="toolbar__control" type="color" value="#2f6df633" />
-                </label>
-
-                <label class="toolbar__group">
-                    <span class="toolbar__label">두께</span>
-                    <input
-                        id="lineWidth"
-                        class="toolbar__control toolbar__control--range"
-                        type="range"
-                        min="1"
-                        max="18"
-                        step="1"
-                        value="3"
-                    />
-                    <output id="lineWidthOut" class="toolbar__output">3</output>
-                </label>
-
-                <div class="toolbar__group" role="group" aria-label="확대/축소">
-                    <span class="toolbar__label">확대</span>
-                    <button id="zoomOutBtn" class="btn" type="button" title="축소">-</button>
-                    <output id="zoomValueOut" class="toolbar__output">100%</output>
-                    <button id="zoomInBtn" class="btn" type="button" title="확대">+</button>
-                </div>
-
-                <button id="undoBtn" class="btn" type="button" title="되돌리기 (Ctrl+Z)">되돌리기</button>
-                <button id="clearBtn" class="btn btn--danger" type="button" title="전체 삭제">전체 삭제</button>
-            </div>
+            <!-- 메뉴들은 동적 생성 -->
+            <div id="toolbarContainer" class="toolbar" role="group" aria-label="도형 그리기 도구"></div>
         </header>
 
         <main class="layout">
