@@ -1,6 +1,7 @@
 // 공용 상수(ENUM-like)
 
 const EShapeKind = {
+    Select: "select",
     // PascalCase (사용 예: EShapeKind.Point)
     Point: "point",
     Line: "line",
@@ -18,18 +19,13 @@ const EShapeKind = {
     FREEHAND: "freehand",
 };
 
-// 편집기 "툴" 값 (select는 도형이 아니라 편집 동작이므로 별도 상수로 둠)
-const EToolValue = {
-    Select: "select",
-};
-
 // 툴 정의 (toolSelect 옵션 + 단축키를 data-driven으로 구성)
 // - value: toolSelect.value로 들어가는 값(문자열)
 // - display: UI 표시 텍스트
 // - shortcut: 키보드 단축키 (대문자 1글자 권장)
 // - isDefault: 시작 시 기본 선택 (1개만 true 권장)
 const ShapeMenuList = [
-    { value: EToolValue.Select, display: "선택/이동", shortcut: "V", isDefault: true },
+    { value: EShapeKind.Select, display: "선택/이동", shortcut: "V", isDefault: true },
     { value: EShapeKind.Point, display: "점", shortcut: "P" },
     { value: EShapeKind.Line, display: "선", shortcut: "L" },
     { value: EShapeKind.Circle, display: "원", shortcut: "C" },
@@ -94,4 +90,4 @@ export const ToolbarGroupInfos = [
     },
 ];
 
-export { EShapeKind, EToolValue, ShapeMenuList };
+export { EShapeKind, ShapeMenuList };

@@ -110,7 +110,7 @@ class TopMenu {
     }
 
     bindEventListeners() {
-        const state = this.app !== null ? this.app.getState() : null;
+        const state = this.app !== null ? this.app.getEditorState() : null;
         state ?? console.warn("[TopMenu] bindEventListeners: app가 바인드되지 않았습니다.");
         if (state !== null) {
             this.lineWidthOutEl.value = String(this.lineWidthEl.value);
@@ -132,7 +132,7 @@ class TopMenu {
             if (this.app === null) {
                 return;
             }
-            const state = this.app.getState();
+            const state = this.app.getEditorState();
             const nextScale = Util.clamp(Number(state.viewScale) / 1.1, 0.2, 4);
             state.viewScale = Math.round(nextScale * 100) / 100;
             this.zoomValueOutEl.value = `${Math.round(state.viewScale * 100)}%`;
@@ -143,7 +143,7 @@ class TopMenu {
             if (this.app === null) {
                 return;
             }
-            const state = this.app.getState();
+            const state = this.app.getEditorState();
             const nextScale = Util.clamp(Number(state.viewScale) * 1.1, 0.2, 4);
             state.viewScale = Math.round(nextScale * 100) / 100;
             this.zoomValueOutEl.value = `${Math.round(state.viewScale * 100)}%`;

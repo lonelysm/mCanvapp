@@ -23,11 +23,13 @@ class EditorInputController {
 
         this.canvasElement = Util.getRequiredEl("canvas");
         this.app = null;
-        this.state = null;
+        this.editorState = null;
 
         this.pointerPos = null;
         this.pointerDownPos = null;
         this.isPointerDown = false;
+        this.dragStart = null;
+        this.dragOriginal = new Map();
 
         const toolOptionInfosCandidate = args.toolOptionInfos ?? null;
         this.toolOptionInfos = Array.isArray(toolOptionInfosCandidate) ? toolOptionInfosCandidate : [];
@@ -52,7 +54,7 @@ class EditorInputController {
 
     bindApp(app) {
         this.app = app;
-        this.state = app !== null ? app.getState() : null;
+        this.editorState = app !== null ? app.getEditorState() : null;
     }
 
     getPointerPos() {
@@ -76,78 +78,11 @@ class EditorInputController {
     }
 
     getCanvasPointFromEvent = (event) => {
-        const state = this.state ?? this.app?.getState() ?? null;
+        const state = this.editorState ?? this.app?.getEditorState() ?? null;
         const scale = state !== null ? Number(state.viewScale) || 1 : 1;
         const rect = this.canvasElement.getBoundingClientRect();
         return { x: (event.clientX - rect.left) / scale, y: (event.clientY - rect.top) / scale };
     };
-
-    /** 도구 + 시작점 + 스타일로 초기 draft 생성 (line/circle/rect/freehand만) */
-    createDraftShape(tool, pointerPoint, style) {
-        const app = this.app;
-        if (app === null) {
-            return null;
-        }
-        if (tool === "line") {
-            return new LineShape({
-                id: app.uid("ln"),
-                start: pointerPoint,
-                end: pointerPoint,
-                style,
-            });
-        }
-        if (tool === "circle") {
-            return new CircleShape({
-                id: app.uid("ci"),
-                center: pointerPoint,
-                radius: 0,
-                style,
-            });
-        }
-        if (tool === "rect") {
-            return new RectShape({
-                id: app.uid("rc"),
-                start: pointerPoint,
-                end: pointerPoint,
-                style,
-            });
-        }
-        if (tool === "freehand") {
-            return new FreehandShape({
-                id: app.uid("fh"),
-                points: [pointerPoint],
-                style,
-            });
-        }
-        return null;
-    }
-
-    /** 현재 draft를 포인터 위치로 직접 수정 (end/radius/points만 갱신). */
-    updateDraftShape(draft, pointerPoint) {
-        const p = { x: pointerPoint.x, y: pointerPoint.y };
-        if (draft.kind === EShapeKind.LINE) {
-            draft.end = p;
-            return;
-        }
-        if (draft.kind === EShapeKind.RECT) {
-            draft.end = p;
-            return;
-        }
-        if (draft.kind === EShapeKind.CIRCLE) {
-            draft.radius = Math.hypot(pointerPoint.x - draft.center.x, pointerPoint.y - draft.center.y);
-            return;
-        }
-        if (draft.kind === EShapeKind.FREEHAND) {
-            const lastPoint = draft.points[draft.points.length - 1] ?? null;
-            lastPoint ?? console.warn("[freehand] last 포인트가 없습니다.");
-            if (lastPoint) {
-                const stepDistance = Math.hypot(pointerPoint.x - lastPoint.x, pointerPoint.y - lastPoint.y);
-                if (stepDistance >= 1.5) {
-                    draft.points.push(p);
-                }
-            }
-        }
-    }
 
     // ---------- 좌표/히트테스트 ----------
     hitTest(shape, pointerPoint) {
@@ -156,7 +91,7 @@ class EditorInputController {
     }
 
     pickShape(pointerPoint) {
-        const state = this.state;
+        const state = this.editorState;
         if (state === null) {
             return null;
         }
@@ -173,9 +108,9 @@ class EditorInputController {
     moveShape(shape, deltaX, deltaY) {
         return shape.translate(deltaX, deltaY);
     }
-    
+
     onPointerDown(e) {
-        const state = this.state;
+        const state = this.editorState;
         const app = this.app;
         if (state === null || app === null) {
             return;
@@ -185,14 +120,14 @@ class EditorInputController {
         this.pointerPos = this.pointerDownPos;
         this.canvasElement.setPointerCapture(e.pointerId);
 
-        const style = app.initShapeStyle();
+        const style = app.getCurrentShapeStyle();
         const pointerDownPoint = this.pointerDownPos;
 
-        if (state.currentTool === "select") {
+        if (state.currentTool === EShapeKind.Select) {
             const hit = this.pickShape(pointerDownPoint);
             state.selectedId = hit ? hit.id : null;
-            state.dragStart = pointerDownPoint;
-            state.dragOriginal = new Map();
+            this.dragStart = pointerDownPoint;
+            this.dragOriginal = new Map();
             state.dragShapesSnapshot =
                 state.selectedId ? state.displayShapes.map((s) => s.clone()) : null;
 
@@ -200,7 +135,7 @@ class EditorInputController {
                 const selectedShapeCandidate = state.displayShapes.find((shape) => shape.id === state.selectedId) ?? null;
                 selectedShapeCandidate ?? console.warn("[select] 선택된 도형을 찾지 못했습니다.");
                 if (selectedShapeCandidate) {
-                    state.dragOriginal.set(selectedShapeCandidate.id, selectedShapeCandidate.clone());
+                    this.dragOriginal.set(selectedShapeCandidate.id, selectedShapeCandidate.clone());
                 }
             }
 
@@ -208,42 +143,11 @@ class EditorInputController {
             return;
         }
 
-        if (state.currentTool === "point") {
-            app.addShape(
-                new PointShape({
-                    id: app.uid("pt"),
-                    position: pointerDownPoint,
-                    radius: Math.max(2, style.lineWidth + 1),
-                    style,
-                })
-            );
-            return;
-        }
-
-        if (state.currentTool === "polygon") {
-            if (state.draftPolygon === null) {
-                state.draftPolygon = new PolygonShape({
-                    id: app.uid("poly"),
-                    points: [pointerDownPoint],
-                    isClosed: false,
-                    style,
-                });
-            } else {
-                state.draftPolygon.points.push(pointerDownPoint);
-            }
-            app.render();
-            return;
-        }
-
-        const draft = this.createDraftShape(state.currentTool, pointerDownPoint, style);
-        if (draft !== null) {
-            state.draftShape = draft;
-            app.render();
-        }
+        app.createShape(pointerDownPoint);
     }
 
     onPointerMove(e) {
-        const state = this.state;
+        const state = this.editorState;
         const app = this.app;
         this.pointerPos = this.getCanvasPointFromEvent(e);
 
@@ -257,20 +161,20 @@ class EditorInputController {
 
         const pointerPoint = this.pointerPos;
 
-        if (state.currentTool === "select") {
-            if (state.selectedId === null || state.dragStart === null) {
+        if (state.currentTool === EShapeKind.Select) {
+            if (state.selectedId === null || this.dragStart === null) {
                 app.render();
                 return;
             }
 
-            const original = state.dragOriginal.get(state.selectedId) ?? null;
+            const original = this.dragOriginal.get(state.selectedId) ?? null;
             original ?? console.warn("[drag] 원본 스냅샷을 찾지 못했습니다.");
             if (!original) {
                 return;
             }
 
-            const deltaX = pointerPoint.x - state.dragStart.x;
-            const deltaY = pointerPoint.y - state.dragStart.y;
+            const deltaX = pointerPoint.x - this.dragStart.x;
+            const deltaY = pointerPoint.y - this.dragStart.y;
             const movedShape = this.moveShape(original, deltaX, deltaY);
             const shapeIndex = state.displayShapes.findIndex((shape) => shape.id === state.selectedId);
             if (shapeIndex >= 0) {
@@ -285,12 +189,11 @@ class EditorInputController {
             return;
         }
 
-        this.updateDraftShape(state.draftShape, pointerPoint);
-        app.render();
+        app.updateDraftShape(pointerPoint);
     }
 
     onPointerUp(e) {
-        const state = this.state;
+        const state = this.editorState;
         const app = this.app;
         this.isPointerDown = false;
         this.canvasElement.releasePointerCapture(e.pointerId);
@@ -299,10 +202,10 @@ class EditorInputController {
             return;
         }
 
-        if (state.currentTool === "select") {
+        if (state.currentTool === EShapeKind.Select) {
             if (state.selectedId !== null && state.dragShapesSnapshot !== null) {
                 const now = state.displayShapes.find((shape) => shape.id === state.selectedId) ?? null;
-                const original = state.dragOriginal.get(state.selectedId) ?? null;
+                const original = this.dragOriginal.get(state.selectedId) ?? null;
                 if (now && original) {
                     const changed = JSON.stringify(now) !== JSON.stringify(original);
                     if (changed) {
@@ -311,26 +214,20 @@ class EditorInputController {
                 }
             }
 
-            state.dragStart = null;
+            this.dragStart = null;
             state.dragShapesSnapshot = null;
-            state.dragOriginal = new Map();
+            this.dragOriginal = new Map();
             app.render();
             return;
         }
 
-        if (state.draftShape !== null) {
-            if (app.isDraftValid(state.draftShape)) {
-                app.addShape(state.draftShape);
-            }
-            state.draftShape = null;
-            app.render();
-        }
+        app.addDraftShape();
     }
 
     onDoubleClick(e) {
-        const state = this.state;
+        const state = this.editorState;
         const app = this.app;
-        if (state === null || state.currentTool !== "polygon") {
+        if (state === null || state.currentTool !== EShapeKind.Polygon) {
             return;
         }
         e.preventDefault();
@@ -338,7 +235,7 @@ class EditorInputController {
     }
 
     onKeyDown(e) {
-        const state = this.state;
+        const state = this.editorState;
         const app = this.app;
         const key = e.key.toLowerCase();
 
@@ -349,13 +246,13 @@ class EditorInputController {
         }
 
         if (key === "delete" || key === "backspace") {
-            if (state?.currentTool === "select") {
+            if (state?.currentTool === EShapeKind.Select) {
                 app?.deleteSelected();
             }
             return;
         }
 
-        if (key === "enter" && state?.currentTool === "polygon") {
+        if (key === "enter" && state?.currentTool === EShapeKind.Polygon) {
             app?.finalizePolygon();
             return;
         }
@@ -368,4 +265,3 @@ class EditorInputController {
 }
 
 export { EditorInputController };
-

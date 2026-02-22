@@ -5,6 +5,7 @@
 
 import { EShapeKind } from "./const.js";
 import { Util } from "./util.js";
+import { EditorInputController } from "./editor_input_controller.js";
 
 class CanvasRenderer {
     static #instance = null;
@@ -251,7 +252,8 @@ class CanvasRenderer {
         if (this.hud === null) {
             return;
         }
-        const pointerPosition = inEditorState.pointerPos;
+
+        const pointerPosition = EditorInputController.getInstance().getPointerPos();
         const posText = pointerPosition ? `${Math.round(pointerPosition.x)}, ${Math.round(pointerPosition.y)}` : "-";
         const countText = `${inEditorState.displayShapes.length}개`;
         const selText = inEditorState.selectedId ? "선택됨" : "없음";
@@ -263,4 +265,3 @@ class CanvasRenderer {
 }
 
 export { CanvasRenderer };
-
