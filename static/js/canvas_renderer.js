@@ -32,7 +32,36 @@ class CanvasRenderer {
         }
         this.screenCtx = screenCtx;
 
+        this.viewOffset = { x: 0, y: 0 };
+        this.viewOffsetAtPanStart = null;
+        this.panSensitivity = 0.55;
+
         CanvasRenderer.#instance = this;
+    }
+
+    /** 현재 뷰 오프셋(팬) 반환. 좌표 변환 시 사용 */
+    getViewOffset() {
+        return this.viewOffset;
+    }
+
+    /** 배경 팬 시작 시 호출. 현재 viewOffset을 기준점으로 저장 */
+    startPan() {
+        this.viewOffsetAtPanStart = { x: this.viewOffset.x, y: this.viewOffset.y };
+    }
+
+    /** 배경 팬 종료 시 호출 */
+    endPan() {
+        this.viewOffsetAtPanStart = null;
+    }
+
+    /** 드래그 델타(월드)와 viewScale로 viewOffset 갱신. 배경 드래그 중 매 프레임 호출 */
+    updatePan(deltaWorldX, deltaWorldY, viewScale) {
+        if (this.viewOffsetAtPanStart === null) {
+            return;
+        }
+        const scale = Number(viewScale) || 1;
+        this.viewOffset.x = this.viewOffsetAtPanStart.x + deltaWorldX * scale * this.panSensitivity;
+        this.viewOffset.y = this.viewOffsetAtPanStart.y + deltaWorldY * scale * this.panSensitivity;
     }
 
     setGridStep(step) {
@@ -52,11 +81,14 @@ class CanvasRenderer {
         return devicePixelRatio;
     }
 
-    // state: { shapes|displayShapes, draftShape, draftPolygon, selectedId, pointerPos, currentTool }
+    // state: { shapes|displayShapes, draftShape, draftPolygon, selectedId, pointerPos, currentToolMode }
     render(editorState) {
         const displayShapes = editorState.displayShapes ?? [];
         const devicePixelRatio = this.resizeToDisplaySize();
         const viewScale = typeof editorState.viewScale === "number" && Number.isFinite(editorState.viewScale) ? editorState.viewScale : 1;
+        const viewOffset = this.viewOffset;
+        const tx = (typeof viewOffset.x === "number" ? viewOffset.x : 0) * devicePixelRatio;
+        const ty = (typeof viewOffset.y === "number" ? viewOffset.y : 0) * devicePixelRatio;
 
         const canvasRectWidth = this.canvas.getBoundingClientRect().width;
         const canvasRectHeight = this.canvas.getBoundingClientRect().height;
@@ -64,8 +96,8 @@ class CanvasRenderer {
         this.screenCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
         this.screenCtx.clearRect(0, 0, canvasRectWidth, canvasRectHeight);
 
-        // draw: scaled world space
-        this.screenCtx.setTransform(devicePixelRatio * viewScale, 0, 0, devicePixelRatio * viewScale, 0, 0);
+        // draw: viewOffset 적용 후 스케일된 월드 공간 (월드 원점이 화면 viewOffset 위치에 그려짐)
+        this.screenCtx.setTransform(devicePixelRatio * viewScale, 0, 0, devicePixelRatio * viewScale, tx, ty);
         const worldW = canvasRectWidth / viewScale;
         const worldH = canvasRectHeight / viewScale;
         this._drawGrid(worldW, worldH);
@@ -260,7 +292,7 @@ class CanvasRenderer {
         const polyText = inEditorState.draftPolygon ? `다각형 점 ${inEditorState.draftPolygon.points.length}개` : "";
         const viewScale = typeof inEditorState.viewScale === "number" && Number.isFinite(inEditorState.viewScale) ? inEditorState.viewScale : 1;
         const zoomText = `${Math.round(viewScale * 100)}%`;
-        this.hud.textContent = `도구: ${inEditorState.currentTool} | 줌: ${zoomText} | 포인터: ${posText} | 도형: ${countText} | 선택: ${selText} ${polyText}`;
+        this.hud.textContent = `도구: ${inEditorState.currentToolMode} | 줌: ${zoomText} | 포인터: ${posText} | 도형: ${countText} | 선택: ${selText} ${polyText}`;
     }
 }
 

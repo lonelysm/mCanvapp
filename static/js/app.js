@@ -15,7 +15,7 @@ class CanvaApp {
         this.objectManager = new ObjectManagerClass();
 
         this.editorState = {
-            currentTool: EShapeKind.Select,
+            currentToolMode: EShapeKind.Select,
             selectedId: null,
             viewScale: 1,
             draftShape: null,
@@ -27,6 +27,11 @@ class CanvaApp {
 
     getEditorState() {
         return this.editorState;
+    }
+
+    /** 렌더러가 관리하는 뷰 오프셋(팬). 좌표 변환용 */
+    getViewOffset() {
+        return this.renderer.getViewOffset();
     }
 
     /** ObjectManager가 관리하는 현재 도형 목록 반환 (방안 A: displayShapes는 editorState에 없음) */
@@ -64,7 +69,7 @@ class CanvaApp {
     }
 
     setTool(tool) {
-        this.getEditorState().currentTool = tool;
+        this.getEditorState().currentToolMode = tool;
         if (this.getEditorState().draftPolygon !== null && tool !== EShapeKind.Polygon) {
             this.finalizePolygon();
         }
@@ -234,7 +239,7 @@ class CanvaApp {
             return null;
         }
 
-        if (editorState?.currentTool === EShapeKind.Point) {
+        if (editorState?.currentToolMode === EShapeKind.Point) {
             this.objectManager.addShape(new PointShape({
                 id: this.uid("pt"),
                 position: pointerDownPoint,
@@ -244,7 +249,7 @@ class CanvaApp {
             return;
         }
 
-        if (editorState?.currentTool === EShapeKind.Polygon) {
+        if (editorState?.currentToolMode === EShapeKind.Polygon) {
             if (editorState.draftPolygon === null) {
                 editorState.draftPolygon = new PolygonShape({
                     id: this.uid("poly"),
@@ -274,7 +279,7 @@ class CanvaApp {
             return null;
         }
 
-        if (editorState?.currentTool === EShapeKind.LINE) {
+        if (editorState?.currentToolMode === EShapeKind.LINE) {
             return new LineShape({
                 id: this.uid("ln"),
                 start: pointerPoint,
@@ -282,7 +287,7 @@ class CanvaApp {
                 style: currentStyle,
             });
         }
-        if (editorState?.currentTool === EShapeKind.CIRCLE) {
+        if (editorState?.currentToolMode === EShapeKind.CIRCLE) {
             return new CircleShape({
                 id: this.uid("ci"),
                 center: pointerPoint,
@@ -290,7 +295,7 @@ class CanvaApp {
                 style: currentStyle,
             });
         }
-        if (editorState?.currentTool === EShapeKind.RECT) {
+        if (editorState?.currentToolMode === EShapeKind.RECT) {
             return new RectShape({
                 id: this.uid("rc"),
                 start: pointerPoint,
@@ -298,7 +303,7 @@ class CanvaApp {
                 style: currentStyle,
             });
         }
-        if (editorState?.currentTool === EShapeKind.FREEHAND) {
+        if (editorState?.currentToolMode === EShapeKind.FREEHAND) {
             return new FreehandShape({
                 id: this.uid("fh"),
                 points: [pointerPoint],
@@ -323,7 +328,7 @@ class CanvaApp {
     //----------------------------------------------------------------
     onPointerDown(pointerPoint) {
         let editorState = this.getEditorState();
-        if (editorState.currentTool === EShapeKind.Select) {
+        if (editorState.currentToolMode === EShapeKind.Select) {
             const hit = this.pickShape(pointerPoint);
             editorState.selectedId = hit ? hit.id : null;
             editorState.dragCopiedOriginal = new Map();
@@ -337,6 +342,9 @@ class CanvaApp {
                 if (selectedShapeCandidate) {
                     editorState.dragCopiedOriginal.set(selectedShapeCandidate.id, selectedShapeCandidate.clone());
                 }
+                this.renderer.endPan();
+            } else {
+                this.renderer.startPan();
             }
 
             this.render();
@@ -348,7 +356,7 @@ class CanvaApp {
 
     onPointerUp(pointerPoint) {
         let editorState = this.getEditorState();
-        if (editorState.currentTool === EShapeKind.Select) {
+        if (editorState.currentToolMode === EShapeKind.Select) {
             if (editorState.selectedId !== null && editorState.dragShapesSnapshot !== null) {
                 const displayShapes = this.getDisplayShapes();
                 const now = displayShapes.find((shape) => shape.id === editorState.selectedId) ?? null;
@@ -363,6 +371,7 @@ class CanvaApp {
 
             editorState.dragShapesSnapshot = null;
             editorState.dragCopiedOriginal = new Map();
+            this.renderer.endPan();
             this.render();
             return;
         }
@@ -372,8 +381,13 @@ class CanvaApp {
 
     onPointerMove(pointerPoint, dragStart) {
         let editorState = this.getEditorState();
-        if (editorState.currentTool === EShapeKind.Select) {
+        if (editorState.currentToolMode === EShapeKind.Select) {
             if (editorState.selectedId === null) {
+                this.renderer.updatePan(
+                    pointerPoint.x - dragStart.x,
+                    pointerPoint.y - dragStart.y,
+                    editorState.viewScale
+                );
                 this.render();
                 return;
             }
@@ -408,7 +422,7 @@ class CanvaApp {
 
     onDoubleClick() {
         let editorState = this.getEditorState();
-        if (editorState.currentTool == EShapeKind.Polygon) {
+        if (editorState.currentToolMode == EShapeKind.Polygon) {
             this.finalizePolygon();
         }
     }

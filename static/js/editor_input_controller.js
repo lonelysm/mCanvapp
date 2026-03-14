@@ -75,11 +75,18 @@ class EditorInputController {
         window.removeEventListener("keydown", this.onKeyDownBound);
     }
 
+    /** 화면(캔버스 요소) 좌표를 월드 좌표로 변환 (viewScale, viewOffset 반영) */
     getCanvasPointFromEvent = (event) => {
         const state = this.editorState ?? this.app?.getEditorState() ?? null;
         const scale = state !== null ? Number(state.viewScale) || 1 : 1;
+        const viewOffset = this.app?.getViewOffset?.() ?? { x: 0, y: 0 };
+        const ox = typeof viewOffset.x === "number" ? viewOffset.x : 0;
+        const oy = typeof viewOffset.y === "number" ? viewOffset.y : 0;
         const rect = this.canvasElement.getBoundingClientRect();
-        return { x: (event.clientX - rect.left) / scale, y: (event.clientY - rect.top) / scale };
+        return {
+            x: (event.clientX - rect.left - ox) / scale,
+            y: (event.clientY - rect.top - oy) / scale,
+        };
     };
 
     // ---------- 좌표/도형 이동 ----------
@@ -154,13 +161,13 @@ class EditorInputController {
         }
 
         if (key === "delete" || key === "backspace") {
-            if (state?.currentTool === EShapeKind.Select) {
+            if (state?.currentToolMode === EShapeKind.Select) {
                 app?.deleteSelected();
             }
             return;
         }
 
-        if (key === "enter" && state?.currentTool === EShapeKind.Polygon) {
+        if (key === "enter" && state?.currentToolMode === EShapeKind.Polygon) {
             app?.finalizePolygon();
             return;
         }
