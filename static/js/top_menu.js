@@ -109,12 +109,21 @@ class TopMenu {
         return EShapeKind.Line;
     }
 
+    /** 렌더러 viewScale을 zoomValueOut에 반영 (휠/버튼 줌 등 스케일 변경 시 호출) */
+    syncZoomValueOut() {
+        if (this.app === null) {
+            return;
+        }
+        const scale = Number(this.app.getViewScale()) || 1;
+        this.zoomValueOutEl.value = `${Math.round(scale * 100)}%`;
+    }
+
     bindEventListeners() {
-        const state = this.app !== null ? this.app.getEditorState() : null;
-        state ?? console.warn("[TopMenu] bindEventListeners: app가 바인드되지 않았습니다.");
-        if (state !== null) {
+        if (this.app === null) {
+            console.warn("[TopMenu] bindEventListeners: app가 바인드되지 않았습니다.");
+        } else {
             this.lineWidthOutEl.value = String(this.lineWidthEl.value);
-            this.zoomValueOutEl.value = `${Math.round(state.viewScale * 100)}%`;
+            this.zoomValueOutEl.value = `${Math.round((this.app.getViewScale?.() ?? 1) * 100)}%`;
         }
 
         this.toolSelectEl.addEventListener("change", () => {
@@ -129,25 +138,15 @@ class TopMenu {
         });
 
         this.zoomOutBtnEl.addEventListener("click", () => {
-            if (this.app === null) {
-                return;
+            if (this.app !== null) {
+                this.app.zoomOut();
             }
-            const state = this.app.getEditorState();
-            const nextScale = Util.clamp(Number(state.viewScale) / 1.1, 0.2, 4);
-            state.viewScale = Math.round(nextScale * 100) / 100;
-            this.zoomValueOutEl.value = `${Math.round(state.viewScale * 100)}%`;
-            this.app.render();
         });
 
         this.zoomInBtnEl.addEventListener("click", () => {
-            if (this.app === null) {
-                return;
+            if (this.app !== null) {
+                this.app.zoomIn();
             }
-            const state = this.app.getEditorState();
-            const nextScale = Util.clamp(Number(state.viewScale) * 1.1, 0.2, 4);
-            state.viewScale = Math.round(nextScale * 100) / 100;
-            this.zoomValueOutEl.value = `${Math.round(state.viewScale * 100)}%`;
-            this.app.render();
         });
 
         this.undoBtnEl.addEventListener("click", () => {

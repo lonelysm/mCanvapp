@@ -22,7 +22,6 @@ class EditorInputController {
 
         this.canvasElement = Util.getRequiredEl("canvas");
         this.app = null;
-        this.editorState = null;
 
         this.pointerPos = null;
         this.pointerDownPos = null;
@@ -46,13 +45,13 @@ class EditorInputController {
         this.onPointerUpBound = (e) => this.onPointerUp(e);
         this.onDoubleClickBound = (e) => this.onDoubleClick(e);
         this.onKeyDownBound = (e) => this.onKeyDown(e);
+        this.onWheelBound = (e) => this.onWheel(e);
 
         EditorInputController.#instance = this;
     }
 
     bindApp(app) {
         this.app = app;
-        this.editorState = app !== null ? app.getEditorState() : null;
     }
 
     getPointerPos() {
@@ -64,6 +63,7 @@ class EditorInputController {
         this.canvasElement.addEventListener("pointermove", this.onPointerMoveBound);
         this.canvasElement.addEventListener("pointerup", this.onPointerUpBound);
         this.canvasElement.addEventListener("dblclick", this.onDoubleClickBound);
+        this.canvasElement.addEventListener("wheel", this.onWheelBound, { passive: false });
         window.addEventListener("keydown", this.onKeyDownBound);
     }
 
@@ -72,13 +72,13 @@ class EditorInputController {
         this.canvasElement.removeEventListener("pointermove", this.onPointerMoveBound);
         this.canvasElement.removeEventListener("pointerup", this.onPointerUpBound);
         this.canvasElement.removeEventListener("dblclick", this.onDoubleClickBound);
+        this.canvasElement.removeEventListener("wheel", this.onWheelBound);
         window.removeEventListener("keydown", this.onKeyDownBound);
     }
 
     /** 화면(캔버스 요소) 좌표를 월드 좌표로 변환 (viewScale, viewOffset 반영) */
     getCanvasPointFromEvent = (event) => {
-        const state = this.editorState ?? this.app?.getEditorState() ?? null;
-        const scale = state !== null ? Number(state.viewScale) || 1 : 1;
+        const scale = Number(this.app?.getViewScale?.()) || 1;
         const viewOffset = this.app?.getViewOffset?.() ?? { x: 0, y: 0 };
         const ox = typeof viewOffset.x === "number" ? viewOffset.x : 0;
         const oy = typeof viewOffset.y === "number" ? viewOffset.y : 0;
@@ -89,11 +89,22 @@ class EditorInputController {
         };
     };
 
+    /** 휠: 캔버스 위에서 확대/축소. 마우스 위치를 중심으로 줌 */
+    onWheel(e) {
+        if (this.app === null) {
+            return;
+        }
+        e.preventDefault();
+        const rect = this.canvasElement.getBoundingClientRect();
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        this.app.onWheelZoom(screenX, screenY, e.deltaY);
+    }
+
     // ---------- 좌표/도형 이동 ----------
     onPointerDown(e) {
-        const state = this.editorState;
         const app = this.app;
-        if (state === null || app === null) {
+        if (app === null) {
             return;
         }
         this.isPointerDown = true;
@@ -150,7 +161,6 @@ class EditorInputController {
     }
 
     onKeyDown(e) {
-        const state = this.editorState;
         const app = this.app;
         const key = e.key.toLowerCase();
 
@@ -161,13 +171,13 @@ class EditorInputController {
         }
 
         if (key === "delete" || key === "backspace") {
-            if (state?.currentToolMode === EShapeKind.Select) {
+            if (app?.currentToolMode === EShapeKind.Select) {
                 app?.deleteSelected();
             }
             return;
         }
 
-        if (key === "enter" && state?.currentToolMode === EShapeKind.Polygon) {
+        if (key === "enter" && app?.currentToolMode === EShapeKind.Polygon) {
             app?.finalizePolygon();
             return;
         }
