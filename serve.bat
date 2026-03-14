@@ -20,6 +20,9 @@ echo Open http://127.0.0.1:5000 in your browser.
 echo To stop the server, press Ctrl+C in this window.
 echo.
 set FLASK_APP=server.app
+
+start /b cmd /c "timeout /t 2 /nobreak >nul && start chrome http://localhost:5000"
+
 python -m flask run --host=127.0.0.1 --port=5000
 
 pause

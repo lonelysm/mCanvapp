@@ -6,26 +6,32 @@ import { EditorInputController } from "./editor_input_controller.js";
 import { CanvasRenderer } from "./canvas_renderer.js";
 import { TopMenu } from "./top_menu.js";
 import { PointShape, LineShape, CircleShape, RectShape, PolygonShape, FreehandShape } from "./shapes.js";
+import { ObjectManagerClass } from "./object_manager.js";
 
 class CanvaApp {
     constructor() {
         this.shapeListEl = Util.getRequiredEl("shapeList");
         this.renderer = CanvasRenderer.getInstance({ gridStep: 32 });
+        this.objectManager = new ObjectManagerClass();
 
         this.editorState = {
             currentTool: EShapeKind.Select,
             selectedId: null,
             viewScale: 1,
-            displayShapes: [],
-            undoStack: [],
             draftShape: null,
             draftPolygon: null,
             dragShapesSnapshot: null,
+            dragCopiedOriginal: null,
         };
     }
 
     getEditorState() {
         return this.editorState;
+    }
+
+    /** ObjectManager가 관리하는 현재 도형 목록 반환 (방안 A: displayShapes는 editorState에 없음) */
+    getDisplayShapes() {
+        return this.objectManager.getShapes();
     }
 
     getCurrentShapeStyle() {
@@ -53,8 +59,8 @@ class CanvaApp {
     }
 
     render() {
-        this.renderer.render(this.getEditorState());
-        this.renderShapeList();
+        this.renderer.render({ ...this.getEditorState(), displayShapes: this.getDisplayShapes() });
+        this.renderHistoryList();
     }
 
     setTool(tool) {
@@ -68,12 +74,14 @@ class CanvaApp {
     //----------------------------------------------------------------
     // Object Manager
     //----------------------------------------------------------------
-    renderShapeList() {
-        const items = this.getEditorState().displayShapes
+    // 히스토리 목록
+    renderHistoryList() {
+        const displayShapes = this.getDisplayShapes();
+        const items = displayShapes
             .slice()
             .reverse()
             .map((shape, idxFromEnd) => {
-                const idx = this.getEditorState().displayShapes.length - 1 - idxFromEnd;
+                const idx = displayShapes.length - 1 - idxFromEnd;
                 const title = `${idx + 1}. ${shape.displayName ?? "도형"}`;
                 const sub = shape.getSubLabel ? shape.getSubLabel() : "";
                 const selected = this.getEditorState().selectedId === shape.id;
@@ -115,19 +123,14 @@ class CanvaApp {
         }
     }
 
-    pushUndoSnapshot(snapshot) {
-        this.getEditorState().undoStack.push(snapshot ?? this.getEditorState().displayShapes.map((s) => s.clone()));
-        if (this.getEditorState().undoStack.length > 50) {
-            this.getEditorState().undoStack.shift();
-        }
+    pushTaskHistory(snapshot) {
+        this.objectManager.pushTaskHistory(snapshot ?? this.getDisplayShapes().map((s) => s.clone()));
     }
 
     undo() {
-        const prev = this.getEditorState().undoStack.pop();
-        if (!prev) {
+        if (!this.objectManager.restoreFromHistory()) {
             return;
         }
-        this.getEditorState().displayShapes = prev;
         this.getEditorState().selectedId = null;
         this.getEditorState().draftShape = null;
         this.getEditorState().draftPolygon = null;
@@ -135,8 +138,7 @@ class CanvaApp {
     }
 
     clearAll() {
-        this.pushUndoSnapshot();
-        this.getEditorState().displayShapes = [];
+        this.objectManager.clear();
         this.getEditorState().selectedId = null;
         this.getEditorState().draftShape = null;
         this.getEditorState().draftPolygon = null;
@@ -147,8 +149,8 @@ class CanvaApp {
         const draftShape = this.getEditorState().draftShape ?? null;
         if (draftShape) {
             if (this.isDraftValid(draftShape)) {
-                this.pushUndoSnapshot();
-                this.getEditorState().displayShapes.push(draftShape);
+                this.pushTaskHistory();
+                this.objectManager.addShape(draftShape);
                 this.getEditorState().selectedId = draftShape.id;
                 this.render();
 
@@ -161,12 +163,12 @@ class CanvaApp {
         if (this.getEditorState().selectedId === null) {
             return;
         }
-        const idx = this.getEditorState().displayShapes.findIndex((s) => s.id === this.getEditorState().selectedId);
+        const idx = this.objectManager.findIndexById(this.getEditorState().selectedId);
         if (idx < 0) {
             return;
         }
-        this.pushUndoSnapshot();
-        this.getEditorState().displayShapes.splice(idx, 1);
+        this.pushTaskHistory();
+        this.objectManager.removeShapeAtIndex(idx);
         this.getEditorState().selectedId = null;
         this.render();
     }
@@ -176,7 +178,7 @@ class CanvaApp {
             return;
         }
         if (this.getEditorState().draftPolygon.points.length >= 3) {
-            this.pushUndoSnapshot();
+            this.pushTaskHistory();
             const draft = this.getEditorState().draftPolygon;
             const final = new PolygonShape({
                 id: draft.id,
@@ -184,11 +186,21 @@ class CanvaApp {
                 isClosed: true,
                 style: draft.style,
             });
-            this.getEditorState().displayShapes.push(final);
+            this.objectManager.addShape(final);
             this.getEditorState().selectedId = final.id;
         }
         this.getEditorState().draftPolygon = null;
         this.render();
+    }
+
+    /** ObjectManager.pickShape 위임 (포인터 위치에서 맨 위 도형 반환) */
+    pickShape(pointerPoint) {
+        return this.objectManager.pickShape(pointerPoint);
+    }
+
+    /** 지정 인덱스 도형을 이동된 도형으로 교체 (드래그 완료 시 사용) */
+    replaceShapeAtIndex(index, shape) {
+        this.objectManager.replaceShapeAtIndex(index, shape);
     }
 
     isDraftValid(shape) {
@@ -223,12 +235,13 @@ class CanvaApp {
         }
 
         if (editorState?.currentTool === EShapeKind.Point) {
-            return new PointShape({
+            this.objectManager.addShape(new PointShape({
                 id: this.uid("pt"),
                 position: pointerDownPoint,
                 radius: Math.max(2, this.getCurrentShapeStyle().lineWidth + 1),
                 style: currentStyle,
-            });
+            }));
+            return;
         }
 
         if (editorState?.currentTool === EShapeKind.Polygon) {
@@ -301,39 +314,112 @@ class CanvaApp {
         if (draftShape === null) {
             return;
         }
-
-        if (draftShape.kind === EShapeKind.LINE) {
-            draftShape.end = pointerPoint;
-            return;
-        }
-        if (draftShape.kind === EShapeKind.RECT) {
-            draftShape.end = pointerPoint;
-            return;
-        }
-        if (draftShape.kind === EShapeKind.CIRCLE) {
-            draftShape.radius = Math.hypot(pointerPoint.x - draftShape.center.x, pointerPoint.y - draftShape.center.y);
-            return;
-        }
-        if (draftShape.kind === EShapeKind.FREEHAND) {
-            const lastPoint = draftShape.points[draftShape.points.length - 1] ?? null;
-            lastPoint ?? console.warn("[freehand] last 포인트가 없습니다.");
-            if (lastPoint) {
-                const stepDistance = Math.hypot(pointerPoint.x - lastPoint.x, pointerPoint.y - lastPoint.y);
-                if (stepDistance >= 1.5) {
-                    draftShape.points.push(pointerPoint);
-                }
-            }
-        }
-
+        draftShape.updateDraftShape(pointerPoint);
         this.render();
     }
+
+    //----------------------------------------------------------------
+    // Input Event Handler
+    //----------------------------------------------------------------
+    onPointerDown(pointerPoint) {
+        let editorState = this.getEditorState();
+        if (editorState.currentTool === EShapeKind.Select) {
+            const hit = this.pickShape(pointerPoint);
+            editorState.selectedId = hit ? hit.id : null;
+            editorState.dragCopiedOriginal = new Map();
+            const displayShapes = this.getDisplayShapes();
+            editorState.dragShapesSnapshot =
+                editorState.selectedId ? displayShapes.map((s) => s.clone()) : null;
+
+            if (editorState.selectedId !== null) {
+                const selectedShapeCandidate = displayShapes.find((shape) => shape.id === editorState.selectedId) ?? null;
+                selectedShapeCandidate ?? console.warn("[select] 선택된 도형을 찾지 못했습니다.");
+                if (selectedShapeCandidate) {
+                    editorState.dragCopiedOriginal.set(selectedShapeCandidate.id, selectedShapeCandidate.clone());
+                }
+            }
+
+            this.render();
+            return;
+        }
+
+        this.createShape(pointerPoint);
+    }
+
+    onPointerUp(pointerPoint) {
+        let editorState = this.getEditorState();
+        if (editorState.currentTool === EShapeKind.Select) {
+            if (editorState.selectedId !== null && editorState.dragShapesSnapshot !== null) {
+                const displayShapes = this.getDisplayShapes();
+                const now = displayShapes.find((shape) => shape.id === editorState.selectedId) ?? null;
+                const original = editorState.dragCopiedOriginal.get(editorState.selectedId) ?? null;
+                if (now && original) {
+                    const changed = JSON.stringify(now) !== JSON.stringify(original);
+                    if (changed) {
+                        this.pushTaskHistory(editorState.dragShapesSnapshot);
+                    }
+                }
+            }
+
+            editorState.dragShapesSnapshot = null;
+            editorState.dragCopiedOriginal = new Map();
+            this.render();
+            return;
+        }
+
+        this.addDraftShape();
+    }
+
+    onPointerMove(pointerPoint, dragStart) {
+        let editorState = this.getEditorState();
+        if (editorState.currentTool === EShapeKind.Select) {
+            if (editorState.selectedId === null) {
+                this.render();
+                return;
+            }
+
+            const original = editorState.dragCopiedOriginal.get(editorState.selectedId) ?? null;
+            original ?? console.warn("[drag] 원본 스냅샷을 찾지 못했습니다.");
+            if (!original) {
+                return;
+            }
+
+            const deltaX = pointerPoint.x - dragStart.x;
+            const deltaY = pointerPoint.y - dragStart.y;
+            const movedShape = original.translate(deltaX, deltaY);
+
+            const displayShapes = this.getDisplayShapes();
+            const shapeIndex = displayShapes.findIndex((shape) => shape.id === editorState.selectedId);
+            if (shapeIndex >= 0) {
+                this.replaceShapeAtIndex(shapeIndex, movedShape);
+            }
+
+            this.render();
+            return;
+        }
+
+        if (editorState.draftShape === null) {
+            this.render();
+            return;
+        }
+
+        this.updateDraftShape(pointerPoint);
+    }
+
+    onDoubleClick() {
+        let editorState = this.getEditorState();
+        if (editorState.currentTool == EShapeKind.Polygon) {
+            this.finalizePolygon();
+        }
+    }
+    onKeyDown() {}
 
     defaultShapes() {
         const style1 = { stroke: "#2f6df6", lineWidth: 3, fillEnabled: true, fill: "rgba(47,109,246,0.20)" };
         const style2 = { stroke: "#32d583", lineWidth: 4, fillEnabled: true, fill: "rgba(50,213,131,0.20)" };
         const style3 = { stroke: "#ffb020", lineWidth: 3, fillEnabled: false, fill: "rgba(0,0,0,0)" };
 
-        this.getEditorState().displayShapes.push(
+        this.objectManager.addShape(
             new RectShape({
                 id: this.uid("rc"),
                 start: { x: 120, y: 100 },
@@ -341,7 +427,7 @@ class CanvaApp {
                 style: style1,
             })
         );
-        this.getEditorState().displayShapes.push(
+        this.objectManager.addShape(
             new CircleShape({
                 id: this.uid("ci"),
                 center: { x: 650, y: 220 },
@@ -349,7 +435,7 @@ class CanvaApp {
                 style: style2,
             })
         );
-        this.getEditorState().displayShapes.push(
+        this.objectManager.addShape(
             new LineShape({
                 id: this.uid("ln"),
                 start: { x: 160, y: 420 },
@@ -357,7 +443,7 @@ class CanvaApp {
                 style: style3,
             })
         );
-        this.getEditorState().displayShapes.push(
+        this.objectManager.addShape(
             new PointShape({
                 id: this.uid("pt"),
                 position: { x: 820, y: 420 },
@@ -365,7 +451,7 @@ class CanvaApp {
                 style: { ...style3, stroke: "#ff4d4d" },
             })
         );
-        this.getEditorState().displayShapes.push(
+        this.objectManager.addShape(
             new PolygonShape({
                 id: this.uid("poly"),
                 points: [

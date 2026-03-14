@@ -1,5 +1,5 @@
-// ?? ???: BaseShape ???? id, displayName, type, ?? ? ?? ??
-// history(undo)? BaseShape ???? ??? ??
+// 모양을 정의하는 클래스
+// BaseShape는 모양들의 공통적인 속성들이 있으며 멤버 함수는 대부분 상속 클래스에서 구현한다
 
 import { EShapeKind } from "./const.js";
 import { Util } from "./util.js";
@@ -20,6 +20,7 @@ class BaseShape {
         return null;
     }
 
+    // histroy를 위해서 복제해서 반환
     translate(deltaX, deltaY) {
         return this.clone();
     }
@@ -34,6 +35,10 @@ class BaseShape {
 
     getSubLabel() {
         return "";
+    }
+
+    updateDraftShape(pointerPoint) {
+        throw new Error("updateDraftShape() must be implemented by subclass");
     }
 
     // 다각형만 구현
@@ -76,6 +81,10 @@ class PointShape extends BaseShape {
     getSubLabel() {
         return `(${Math.round(this.position.x)}, ${Math.round(this.position.y)})`;
     }
+
+    updateDraftShape(pointerPoint) {
+        // do nothing
+    }
 }
 
 class LineShape extends BaseShape {
@@ -116,6 +125,10 @@ class LineShape extends BaseShape {
 
     getSubLabel() {
         return `Start(${Math.round(this.start.x)},${Math.round(this.start.y)}) ? End(${Math.round(this.end.x)},${Math.round(this.end.y)})`;
+    }
+
+    updateDraftShape(pointerPoint) {
+        this.end = pointerPoint;
     }
 }
 
@@ -159,6 +172,10 @@ class CircleShape extends BaseShape {
 
     getSubLabel() {
         return `Center(${Math.round(this.center.x)},${Math.round(this.center.y)}), r=${Math.round(this.radius)}`;
+    }
+
+    updateDraftShape(pointerPoint) {
+        this.radius = Math.hypot(pointerPoint.x - this.center.x, pointerPoint.y - this.center.y);
     }
 }
 
@@ -216,6 +233,10 @@ class RectShape extends BaseShape {
     getSubLabel() {
         const rect = Util.rectFromPoints(this.start, this.end);
         return `x=${Math.round(rect.x)}, y=${Math.round(rect.y)}, w=${Math.round(rect.w)}, h=${Math.round(rect.h)}`;
+    }
+
+    updateDraftShape(pointerPoint) {
+        this.end = pointerPoint;
     }
 }
 
@@ -322,6 +343,17 @@ class FreehandShape extends BaseShape {
 
     getSubLabel() {
         return `점 ${this.points.length}개`;
+    }
+
+    updateDraftShape(pointerPoint) {
+        const lastPoint = this.points[this.points.length - 1] ?? null;
+        lastPoint ?? console.warn("[freehand] last 포인트가 없습니다.");
+        if (lastPoint) {
+            const stepDistance = Math.hypot(pointerPoint.x - lastPoint.x, pointerPoint.y - lastPoint.y);
+            if (stepDistance >= 1.5) {
+                this.points.push(pointerPoint);
+            }
+        }
     }
 }
 
