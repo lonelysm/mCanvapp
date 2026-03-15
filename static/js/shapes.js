@@ -41,6 +41,37 @@ class BaseShape {
         throw new Error("updateDraftShape() must be implemented by subclass");
     }
 
+    /** ctx에 this.style 적용. 서브클래스 drawShape에서 호출 */
+    applyStyle(ctx) {
+        if (ctx === null || ctx === undefined) {
+            console.warn("[BaseShape.applyStyle] ctx가 없습니다.");
+            return;
+        }
+        ctx.strokeStyle = this.style.stroke;
+        ctx.fillStyle = this.style.fill;
+        ctx.lineWidth = this.style.lineWidth;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+    }
+
+    /** 도형 본연의 모양을 ctx에 그린다. 서브클래스에서 구현 */
+    drawShape(ctx) {
+        if (ctx === null || ctx === undefined) {
+            console.warn("[BaseShape.drawShape] ctx가 없습니다.");
+            return;
+        }
+        throw new Error("drawShape(ctx) must be implemented by subclass");
+    }
+
+    /** 선택 시 표시할 아웃라인을 ctx에 그린다. 서브클래스에서 구현 */
+    drawSelectionOutline(ctx) {
+        if (ctx === null || ctx === undefined) {
+            console.warn("[BaseShape.drawSelectionOutline] ctx가 없습니다.");
+            return;
+        }
+        throw new Error("drawSelectionOutline(ctx) must be implemented by subclass");
+    }
+
     // 다각형만 구현
     finalize() {}
 }
@@ -84,6 +115,27 @@ class PointShape extends BaseShape {
 
     updateDraftShape(pointerPoint) {
         // do nothing
+    }
+
+    drawShape(ctx) {
+        this.applyStyle(ctx);
+        ctx.beginPath();
+        ctx.arc(this.position.x, this.position.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.style.stroke;
+        ctx.fill();
+    }
+
+    drawSelectionOutline(ctx) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 6]);
+        ctx.lineCap = "butt";
+        ctx.lineJoin = "miter";
+        ctx.beginPath();
+        ctx.arc(this.position.x, this.position.y, this.radius + 6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
     }
 }
 
@@ -129,6 +181,28 @@ class LineShape extends BaseShape {
 
     updateDraftShape(pointerPoint) {
         this.end = pointerPoint;
+    }
+
+    drawShape(ctx) {
+        this.applyStyle(ctx);
+        ctx.beginPath();
+        ctx.moveTo(this.start.x, this.start.y);
+        ctx.lineTo(this.end.x, this.end.y);
+        ctx.stroke();
+    }
+
+    drawSelectionOutline(ctx) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 6]);
+        ctx.lineCap = "butt";
+        ctx.lineJoin = "miter";
+        ctx.beginPath();
+        ctx.moveTo(this.start.x, this.start.y);
+        ctx.lineTo(this.end.x, this.end.y);
+        ctx.stroke();
+        ctx.restore();
     }
 }
 
@@ -176,6 +250,29 @@ class CircleShape extends BaseShape {
 
     updateDraftShape(pointerPoint) {
         this.radius = Math.hypot(pointerPoint.x - this.center.x, pointerPoint.y - this.center.y);
+    }
+
+    drawShape(ctx) {
+        this.applyStyle(ctx);
+        ctx.beginPath();
+        ctx.arc(this.center.x, this.center.y, Math.max(0, this.radius), 0, Math.PI * 2);
+        if (this.style.fillEnabled) {
+            ctx.fill();
+        }
+        ctx.stroke();
+    }
+
+    drawSelectionOutline(ctx) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 6]);
+        ctx.lineCap = "butt";
+        ctx.lineJoin = "miter";
+        ctx.beginPath();
+        ctx.arc(this.center.x, this.center.y, Math.max(0, this.radius) + 6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
     }
 }
 
@@ -237,6 +334,29 @@ class RectShape extends BaseShape {
 
     updateDraftShape(pointerPoint) {
         this.end = pointerPoint;
+    }
+
+    drawShape(ctx) {
+        this.applyStyle(ctx);
+        const rect = Util.rectFromPoints(this.start, this.end);
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.w, rect.h);
+        if (this.style.fillEnabled) {
+            ctx.fill();
+        }
+        ctx.stroke();
+    }
+
+    drawSelectionOutline(ctx) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 6]);
+        ctx.lineCap = "butt";
+        ctx.lineJoin = "miter";
+        const rect = Util.rectFromPoints(this.start, this.end);
+        ctx.strokeRect(rect.x - 4, rect.y - 4, rect.w + 8, rect.h + 8);
+        ctx.restore();
     }
 }
 
@@ -300,6 +420,47 @@ class PolygonShape extends BaseShape {
         return `점 ${this.points.length}개`;
     }
 
+    drawShape(ctx) {
+        if (this.points.length < 2) {
+            return;
+        }
+        this.applyStyle(ctx);
+        ctx.beginPath();
+        ctx.moveTo(this.points[0].x, this.points[0].y);
+        for (let pointIndex = 1; pointIndex < this.points.length; pointIndex++) {
+            ctx.lineTo(this.points[pointIndex].x, this.points[pointIndex].y);
+        }
+        if (this.isClosed) {
+            ctx.closePath();
+        }
+        if (this.isClosed && this.style.fillEnabled) {
+            ctx.fill();
+        }
+        ctx.stroke();
+    }
+
+    drawSelectionOutline(ctx) {
+        if (this.points.length < 2) {
+            return;
+        }
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 6]);
+        ctx.lineCap = "butt";
+        ctx.lineJoin = "miter";
+        ctx.beginPath();
+        ctx.moveTo(this.points[0].x, this.points[0].y);
+        for (let pointIndex = 1; pointIndex < this.points.length; pointIndex++) {
+            ctx.lineTo(this.points[pointIndex].x, this.points[pointIndex].y);
+        }
+        if (this.isClosed) {
+            ctx.closePath();
+        }
+        ctx.stroke();
+        ctx.restore();
+    }
+
     finalize() {}
 }
 
@@ -354,6 +515,38 @@ class FreehandShape extends BaseShape {
                 this.points.push(pointerPoint);
             }
         }
+    }
+
+    drawShape(ctx) {
+        if (this.points.length < 2) {
+            return;
+        }
+        this.applyStyle(ctx);
+        ctx.beginPath();
+        ctx.moveTo(this.points[0].x, this.points[0].y);
+        for (let pointIndex = 1; pointIndex < this.points.length; pointIndex++) {
+            ctx.lineTo(this.points[pointIndex].x, this.points[pointIndex].y);
+        }
+        ctx.stroke();
+    }
+
+    drawSelectionOutline(ctx) {
+        if (this.points.length < 2) {
+            return;
+        }
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 6]);
+        ctx.lineCap = "butt";
+        ctx.lineJoin = "miter";
+        ctx.beginPath();
+        ctx.moveTo(this.points[0].x, this.points[0].y);
+        for (let pointIndex = 1; pointIndex < this.points.length; pointIndex++) {
+            ctx.lineTo(this.points[pointIndex].x, this.points[pointIndex].y);
+        }
+        ctx.stroke();
+        ctx.restore();
     }
 }
 

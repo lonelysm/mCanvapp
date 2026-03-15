@@ -133,7 +133,7 @@ class TopMenu {
         this.lineWidthEl.addEventListener("input", () => {
             this.lineWidthOutEl.value = String(this.lineWidthEl.value);
             if (this.app !== null) {
-                this.app.render();
+                this.app.requestRender();
             }
         });
 

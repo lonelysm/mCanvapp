@@ -5,7 +5,6 @@
 
 import { EShapeKind } from "./const.js";
 import { Util } from "./util.js";
-import { EditorInputController } from "./editor_input_controller.js";
 
 class CanvasRenderer {
     static #instance = null;
@@ -89,6 +88,93 @@ class CanvasRenderer {
         this.viewScale = next;
     }
 
+    /** 이벤트(화면 좌표)를 월드 좌표로 변환. ObjectManager 등에서 사용 */
+    getWorldPointFromEvent(event) {
+        const rect = this.canvas.getBoundingClientRect();
+        const scale = Number(this.viewScale) || 1;
+        const ox = typeof this.viewOffset.x === "number" ? this.viewOffset.x : 0;
+        const oy = typeof this.viewOffset.y === "number" ? this.viewOffset.y : 0;
+        return {
+            x: (event.clientX - rect.left - ox) / scale,
+            y: (event.clientY - rect.top - oy) / scale,
+        };
+    }
+
+    /** 팬/줌 이벤트 바인드. ObjectManager 다음에 등록해 배경 드래그·휠 줌만 처리 */
+    bindPanZoomEvents(objectManager, requestRender, syncZoomOut) {
+        this._objectManager = objectManager;
+        this._requestRender = requestRender;
+        this._syncZoomOut = syncZoomOut ?? (() => {});
+
+        this._onPointerDownBound = (e) => this._onPanPointerDown(e);
+        this._onPointerMoveBound = (e) => this._onPanPointerMove(e);
+        this._onPointerUpBound = (e) => this._onPanPointerUp(e);
+        this._onWheelBound = (e) => this._onWheel(e);
+
+        this.canvas.addEventListener("pointerdown", this._onPointerDownBound);
+        this.canvas.addEventListener("pointermove", this._onPointerMoveBound);
+        this.canvas.addEventListener("pointerup", this._onPointerUpBound);
+        this.canvas.addEventListener("wheel", this._onWheelBound, { passive: false });
+    }
+
+    unbindPanZoomEvents() {
+        this.canvas.removeEventListener("pointerdown", this._onPointerDownBound);
+        this.canvas.removeEventListener("pointermove", this._onPointerMoveBound);
+        this.canvas.removeEventListener("pointerup", this._onPointerUpBound);
+        this.canvas.removeEventListener("wheel", this._onWheelBound);
+        this._objectManager = null;
+        this._requestRender = null;
+        this._syncZoomOut = null;
+    }
+
+    _onPanPointerDown(e) {
+        if (!this._objectManager || !this._requestRender) return;
+        if (this._objectManager.getCurrentToolMode() !== EShapeKind.Select) return;
+        const worldPoint = this.getWorldPointFromEvent(e);
+        if (this._objectManager.pickShape(worldPoint) !== null) return;
+
+        this.startPan();
+        this._panStartWorld = worldPoint;
+        this.canvas.setPointerCapture(e.pointerId);
+        this._panPointerId = e.pointerId;
+        this._requestRender();
+    }
+
+    _onPanPointerMove(e) {
+        if (this.viewOffsetAtPanStart === null || this._panStartWorld === undefined || !this._requestRender) return;
+        const worldPoint = this.getWorldPointFromEvent(e);
+        const deltaX = worldPoint.x - this._panStartWorld.x;
+        const deltaY = worldPoint.y - this._panStartWorld.y;
+        this.updatePan(deltaX, deltaY);
+        this._requestRender();
+    }
+
+    _onPanPointerUp(e) {
+        this.canvas.releasePointerCapture(e.pointerId);
+        this.endPan();
+        this._panPointerId = null;
+        this._panStartWorld = undefined;
+        this._requestRender?.();
+    }
+
+    _onWheel(e) {
+        e.preventDefault();
+        if (!this._requestRender || !this._syncZoomOut) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        const MIN_SCALE = 0.1;
+        const MAX_SCALE = 5;
+        const ZOOM_FACTOR = 1.15;
+        const scale = Number(this.viewScale) || 1;
+        const newScale = e.deltaY < 0 ? scale * ZOOM_FACTOR : scale / ZOOM_FACTOR;
+        const clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+        if (clamped === scale) return;
+        this.zoomAt(screenX, screenY, clamped);
+        this._syncZoomOut();
+        this._requestRender();
+    }
+
     setGridStep(step) {
         this.gridStep = Math.max(4, Math.floor(step));
     }
@@ -145,143 +231,14 @@ class CanvasRenderer {
         this._updateHud(editorState);
     }
 
-    _applyStyle(style) {
-        this.screenCtx.strokeStyle = style.stroke;
-        this.screenCtx.fillStyle = style.fill;
-        this.screenCtx.lineWidth = style.lineWidth;
-        this.screenCtx.lineJoin = "round";
-        this.screenCtx.lineCap = "round";
-    }
-
-    _rectFromPoints(startPoint, endPoint) {
-        const x1 = Math.min(startPoint.x, endPoint.x);
-        const y1 = Math.min(startPoint.y, endPoint.y);
-        const x2 = Math.max(startPoint.x, endPoint.x);
-        const y2 = Math.max(startPoint.y, endPoint.y);
-        return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
-    }
-
+    /** 도형 본체 그리기. 각 Shape 클래스의 drawShape(ctx)에 위임 */
     _drawShape(shape) {
-        this._applyStyle(shape.style);
-
-        if (shape.kind === EShapeKind.POINT) {
-            this.screenCtx.beginPath();
-            this.screenCtx.arc(shape.position.x, shape.position.y, shape.radius, 0, Math.PI * 2);
-            this.screenCtx.fillStyle = shape.style.stroke;
-            this.screenCtx.fill();
-            return;
-        }
-
-        if (shape.kind === EShapeKind.LINE) {
-            this.screenCtx.beginPath();
-            this.screenCtx.moveTo(shape.start.x, shape.start.y);
-            this.screenCtx.lineTo(shape.end.x, shape.end.y);
-            this.screenCtx.stroke();
-            return;
-        }
-
-        if (shape.kind === EShapeKind.CIRCLE) {
-            this.screenCtx.beginPath();
-            this.screenCtx.arc(shape.center.x, shape.center.y, Math.max(0, shape.radius), 0, Math.PI * 2);
-            if (shape.style.fillEnabled) {
-                this.screenCtx.fill();
-            }
-            this.screenCtx.stroke();
-            return;
-        }
-
-        if (shape.kind === EShapeKind.RECT) {
-            const rect = this._rectFromPoints(shape.start, shape.end);
-            this.screenCtx.beginPath();
-            this.screenCtx.rect(rect.x, rect.y, rect.w, rect.h);
-            if (shape.style.fillEnabled) {
-                this.screenCtx.fill();
-            }
-            this.screenCtx.stroke();
-            return;
-        }
-
-        if (shape.kind === EShapeKind.POLYGON) {
-            if (shape.points.length < 2) {
-                return;
-            }
-            this.screenCtx.beginPath();
-            this.screenCtx.moveTo(shape.points[0].x, shape.points[0].y);
-            for (let pointIndex = 1; pointIndex < shape.points.length; pointIndex++) {
-                this.screenCtx.lineTo(shape.points[pointIndex].x, shape.points[pointIndex].y);
-            }
-            if (shape.isClosed) {
-                this.screenCtx.closePath();
-            }
-            if (shape.isClosed && shape.style.fillEnabled) {
-                this.screenCtx.fill();
-            }
-            this.screenCtx.stroke();
-            return;
-        }
-
-        if (shape.kind === EShapeKind.FREEHAND) {
-            if (shape.points.length < 2) {
-                return;
-            }
-            this.screenCtx.beginPath();
-            this.screenCtx.moveTo(shape.points[0].x, shape.points[0].y);
-            for (let pointIndex = 1; pointIndex < shape.points.length; pointIndex++) {
-                this.screenCtx.lineTo(shape.points[pointIndex].x, shape.points[pointIndex].y);
-            }
-            this.screenCtx.stroke();
-            return;
-        }
+        shape.drawShape(this.screenCtx);
     }
 
+    /** 선택 아웃라인 그리기. 각 Shape 클래스의 drawSelectionOutline(ctx)에 위임 */
     _drawSelectionOutline(shape) {
-        this.screenCtx.save();
-        this.screenCtx.strokeStyle = "rgba(255,255,255,0.85)";
-        this.screenCtx.lineWidth = 1.5;
-        this.screenCtx.setLineDash([6, 6]);
-        this.screenCtx.lineCap = "butt";
-        this.screenCtx.lineJoin = "miter";
-
-        if (shape.kind === EShapeKind.POINT) {
-            this.screenCtx.beginPath();
-            this.screenCtx.arc(shape.position.x, shape.position.y, shape.radius + 6, 0, Math.PI * 2);
-            this.screenCtx.stroke();
-        } else if (shape.kind === EShapeKind.LINE) {
-            this.screenCtx.beginPath();
-            this.screenCtx.moveTo(shape.start.x, shape.start.y);
-            this.screenCtx.lineTo(shape.end.x, shape.end.y);
-            this.screenCtx.stroke();
-        } else if (shape.kind === EShapeKind.CIRCLE) {
-            this.screenCtx.beginPath();
-            this.screenCtx.arc(shape.center.x, shape.center.y, Math.max(0, shape.radius) + 6, 0, Math.PI * 2);
-            this.screenCtx.stroke();
-        } else if (shape.kind === EShapeKind.RECT) {
-            const rect = this._rectFromPoints(shape.start, shape.end);
-            this.screenCtx.strokeRect(rect.x - 4, rect.y - 4, rect.w + 8, rect.h + 8);
-        } else if (shape.kind === EShapeKind.POLYGON) {
-            if (shape.points.length >= 2) {
-                this.screenCtx.beginPath();
-                this.screenCtx.moveTo(shape.points[0].x, shape.points[0].y);
-                for (let pointIndex = 1; pointIndex < shape.points.length; pointIndex++) {
-                    this.screenCtx.lineTo(shape.points[pointIndex].x, shape.points[pointIndex].y);
-                }
-                if (shape.isClosed) {
-                    this.screenCtx.closePath();
-                }
-                this.screenCtx.stroke();
-            }
-        } else if (shape.kind === EShapeKind.FREEHAND) {
-            if (shape.points.length >= 2) {
-                this.screenCtx.beginPath();
-                this.screenCtx.moveTo(shape.points[0].x, shape.points[0].y);
-                for (let pointIndex = 1; pointIndex < shape.points.length; pointIndex++) {
-                    this.screenCtx.lineTo(shape.points[pointIndex].x, shape.points[pointIndex].y);
-                }
-                this.screenCtx.stroke();
-            }
-        }
-
-        this.screenCtx.restore();
+        shape.drawSelectionOutline(this.screenCtx);
     }
 
     _drawGrid(w, h) {
@@ -310,7 +267,7 @@ class CanvasRenderer {
             return;
         }
 
-        const pointerPosition = EditorInputController.getInstance().getPointerPos();
+        const pointerPosition = inEditorState.pointerPos ?? null;
         const posText = pointerPosition ? `${Math.round(pointerPosition.x)}, ${Math.round(pointerPosition.y)}` : "-";
         const countText = `${inEditorState.displayShapes.length}개`;
         const selText = inEditorState.selectedId ? "선택됨" : "없음";
