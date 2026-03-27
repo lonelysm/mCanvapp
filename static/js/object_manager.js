@@ -8,7 +8,20 @@ import { PointShape, LineShape, CircleShape, RectShape, PolygonShape, FreehandSh
 const TASK_HISTORY_MAX = 50;
 
 class ObjectManagerClass {
+    static #instance = null;
+
+    static getInstance() {
+        if (ObjectManagerClass.#instance === null) {
+            ObjectManagerClass.#instance = new ObjectManagerClass();
+        }
+        return ObjectManagerClass.#instance;
+    }
+
     constructor() {
+        if (ObjectManagerClass.#instance !== null) {
+            return ObjectManagerClass.#instance;
+        }
+
         this.shapes = [];
         this.taskHistories = [];
 
@@ -25,25 +38,19 @@ class ObjectManagerClass {
         this._lastPointerWorld = null;
 
         this._canvas = null;
-        this._getWorldPointFromEvent = null;
-        this._requestRender = null;
-        this._getCurrentShapeStyle = null;
-        this._uid = null;
         this._renderer = null;
 
         this._onPointerDownBound = (e) => this._onPointerDown(e);
         this._onPointerMoveBound = (e) => this._onPointerMove(e);
         this._onPointerUpBound = (e) => this._onPointerUp(e);
         this._onDoubleClickBound = (e) => this._onDoubleClick(e);
+
+        ObjectManagerClass.#instance = this;
     }
 
     /** 포인터 이벤트 바인드. ObjectManager를 먼저 등록해 도형 히트 시 처리·stopImmediatePropagation */
-    bindPointerEvents(canvas, getWorldPointFromEvent, requestRender, getCurrentShapeStyle, uid, renderer) {
+    bindPointerEvents(canvas, renderer) {
         this._canvas = canvas;
-        this._getWorldPointFromEvent = getWorldPointFromEvent;
-        this._requestRender = requestRender;
-        this._getCurrentShapeStyle = getCurrentShapeStyle;
-        this._uid = uid;
         this._renderer = renderer;
 
         this._canvas.addEventListener("pointerdown", this._onPointerDownBound);
@@ -148,7 +155,7 @@ class ObjectManagerClass {
         this.selectedId = null;
         this.draftShape = null;
         this.draftPolygon = null;
-        this._requestRender?.();
+        this._renderer?.requestRender?.();
     }
 
     clearAll() {
@@ -156,7 +163,7 @@ class ObjectManagerClass {
         this.selectedId = null;
         this.draftShape = null;
         this.draftPolygon = null;
-        this._requestRender?.();
+        this._renderer?.requestRender?.();
     }
 
     isDraftValid(shape) {
@@ -183,7 +190,7 @@ class ObjectManagerClass {
             this.addShape(draft);
             this.selectedId = draft.id;
             this.draftShape = null;
-            this._requestRender?.();
+            this._renderer?.requestRender?.();
         }
     }
 
@@ -194,7 +201,7 @@ class ObjectManagerClass {
         this.pushTaskHistory();
         this.removeShapeAtIndex(idx);
         this.selectedId = null;
-        this._requestRender?.();
+        this._renderer?.requestRender?.();
     }
 
     finalizePolygon() {
@@ -212,30 +219,28 @@ class ObjectManagerClass {
             this.selectedId = final.id;
         }
         this.draftPolygon = null;
-        this._requestRender?.();
+        this._renderer?.requestRender?.();
     }
 
     _createShape(pointerDownPoint) {
-        const currentStyle = this._getCurrentShapeStyle?.();
+        const currentStyle = this._getCurrentShapeStyleFromDom();
         if (!currentStyle) return;
 
         if (this.currentToolMode === EShapeKind.Point) {
             this.addShape(
                 new PointShape({
-                    id: this._uid("pt"),
                     position: pointerDownPoint,
                     radius: Math.max(2, currentStyle.lineWidth + 1),
                     style: currentStyle,
                 })
             );
-            this._requestRender?.();
+            this._renderer?.requestRender?.();
             return;
         }
 
         if (this.currentToolMode === EShapeKind.Polygon) {
             if (this.draftPolygon === null) {
                 this.draftPolygon = new PolygonShape({
-                    id: this._uid("poly"),
                     points: [pointerDownPoint],
                     isClosed: false,
                     style: currentStyle,
@@ -243,24 +248,23 @@ class ObjectManagerClass {
             } else {
                 this.draftPolygon.points.push(pointerDownPoint);
             }
-            this._requestRender?.();
+            this._renderer?.requestRender?.();
             return;
         }
 
         const draftShape = this._createDraftShape(pointerDownPoint);
         if (draftShape !== null) {
             this.draftShape = draftShape;
-            this._requestRender?.();
+            this._renderer?.requestRender?.();
         }
     }
 
     _createDraftShape(pointerPoint) {
-        const currentStyle = this._getCurrentShapeStyle?.();
+        const currentStyle = this._getCurrentShapeStyleFromDom();
         if (!currentStyle) return null;
 
         if (this.currentToolMode === EShapeKind.LINE) {
             return new LineShape({
-                id: this._uid("ln"),
                 start: pointerPoint,
                 end: pointerPoint,
                 style: currentStyle,
@@ -268,7 +272,6 @@ class ObjectManagerClass {
         }
         if (this.currentToolMode === EShapeKind.CIRCLE) {
             return new CircleShape({
-                id: this._uid("ci"),
                 center: pointerPoint,
                 radius: 0,
                 style: currentStyle,
@@ -276,7 +279,6 @@ class ObjectManagerClass {
         }
         if (this.currentToolMode === EShapeKind.RECT) {
             return new RectShape({
-                id: this._uid("rc"),
                 start: pointerPoint,
                 end: pointerPoint,
                 style: currentStyle,
@@ -284,7 +286,6 @@ class ObjectManagerClass {
         }
         if (this.currentToolMode === EShapeKind.FREEHAND) {
             return new FreehandShape({
-                id: this._uid("fh"),
                 points: [pointerPoint],
                 style: currentStyle,
             });
@@ -293,11 +294,9 @@ class ObjectManagerClass {
     }
 
     _onPointerDown(e) {
-        const getWorld = this._getWorldPointFromEvent;
-        const requestRender = this._requestRender;
-        if (!getWorld || !requestRender) return;
+        if (!this._renderer) return;
 
-        const worldPoint = getWorld(e);
+        const worldPoint = this._renderer.getWorldPointFromEvent(e);
         this._pointerDownPos = worldPoint;
         this._dragStart = worldPoint;
 
@@ -317,7 +316,7 @@ class ObjectManagerClass {
                 e.stopImmediatePropagation();
                 this._canvas.setPointerCapture(e.pointerId);
             }
-            requestRender();
+            this._renderer.requestRender();
             return;
         }
 
@@ -330,11 +329,9 @@ class ObjectManagerClass {
     }
 
     _onPointerMove(e) {
-        const getWorld = this._getWorldPointFromEvent;
-        const requestRender = this._requestRender;
-        if (!getWorld || !requestRender) return;
+        if (!this._renderer) return;
 
-        const worldPoint = getWorld(e);
+        const worldPoint = this._renderer.getWorldPointFromEvent(e);
         this._lastPointerWorld = worldPoint;
 
         if (this._isDraggingOrDrafting) {
@@ -351,17 +348,15 @@ class ObjectManagerClass {
             } else if (this.draftShape !== null) {
                 this.draftShape.updateDraftShape(worldPoint);
             }
-            requestRender();
+            this._renderer.requestRender();
             return;
         }
 
-        requestRender();
+        this._renderer.requestRender();
     }
 
     _onPointerUp(e) {
-        const getWorld = this._getWorldPointFromEvent;
-        const requestRender = this._requestRender;
-        if (!requestRender) return;
+        if (!this._renderer) return;
 
         if (this._isDraggingOrDrafting) {
             e.stopImmediatePropagation();
@@ -385,7 +380,7 @@ class ObjectManagerClass {
             this._isDraggingOrDrafting = false;
             this._pointerDownPos = null;
             this._dragStart = null;
-            requestRender();
+            this._renderer.requestRender();
             return;
         }
 
@@ -399,6 +394,30 @@ class ObjectManagerClass {
         if (this.currentToolMode === EShapeKind.Polygon) {
             this.finalizePolygon();
         }
+    }
+
+    _getCurrentShapeStyleFromDom() {
+        const strokeColorEl = document.getElementById("strokeColor");
+        const fillEnabledEl = document.getElementById("fillEnabled");
+        const fillColorEl = document.getElementById("fillColor");
+        const lineWidthEl = document.getElementById("lineWidth");
+
+        strokeColorEl ?? console.error("[ui] strokeColor 엘리먼트를 찾지 못했습니다.");
+        fillEnabledEl ?? console.error("[ui] fillEnabled 엘리먼트를 찾지 못했습니다.");
+        fillColorEl ?? console.error("[ui] fillColor 엘리먼트를 찾지 못했습니다.");
+        lineWidthEl ?? console.error("[ui] lineWidth 엘리먼트를 찾지 못했습니다.");
+
+        const strokeColor = strokeColorEl?.value ?? "#2f6df6";
+        const fillEnabledValue = fillEnabledEl?.checked ?? true;
+        const fillColor = fillColorEl?.value ?? "#2f6df633";
+        const lineWidthValue = Number(lineWidthEl?.value ?? 3);
+
+        return {
+            strokeColor,
+            lineWidth: Util.clamp(lineWidthValue, 1, 50),
+            fillEnabled: fillEnabledValue,
+            fillColor,
+        };
     }
 }
 

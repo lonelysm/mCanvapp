@@ -12,59 +12,11 @@ class CanvaApp {
     constructor() {
         this.shapeListEl = Util.getRequiredEl("shapeList");
         this.renderer = CanvasRenderer.getInstance({ gridStep: 32 });
-        this.objectManager = new ObjectManagerClass();
-
-        this._requestRender = () => {
-            this.render();
-            this.renderHistoryList();
-        };
+        this.objectManager = ObjectManagerClass.getInstance();
+        this._onCanvasRenderedBound = () => this.renderHistoryList();
     }
 
-    requestRender() {
-        this._requestRender();
-    }
-
-    getViewOffset() {
-        return this.renderer.getViewOffset();
-    }
-
-    getViewScale() {
-        return this.renderer.getViewScale();
-    }
-
-    getCurrentShapeStyle() {
-        const strokeColorEl = document.getElementById("strokeColor");
-        const fillEnabledEl = document.getElementById("fillEnabled");
-        const fillColorEl = document.getElementById("fillColor");
-        const lineWidthEl = document.getElementById("lineWidth");
-
-        strokeColorEl ?? console.error("[ui] strokeColor 엘리먼트를 찾지 못했습니다.");
-        fillEnabledEl ?? console.error("[ui] fillEnabled 엘리먼트를 찾지 못했습니다.");
-        fillColorEl ?? console.error("[ui] fillColor 엘리먼트를 찾지 못했습니다.");
-        lineWidthEl ?? console.error("[ui] lineWidth 엘리먼트를 찾지 못했습니다.");
-
-        const strokeColor = strokeColorEl?.value ?? "#2f6df6";
-        const fillEnabledValue = fillEnabledEl?.checked ?? true;
-        const fillColor = fillColorEl?.value ?? "#2f6df633";
-        const lineWidthValue = Number(lineWidthEl?.value ?? 3);
-
-        return {
-            strokeColor,
-            lineWidth: Util.clamp(lineWidthValue, 1, 50),
-            fillEnabled: fillEnabledValue,
-            fillColor,
-        };
-    }
-
-    uid(prefix) {
-        return Util.uid(prefix);
-    }
-
-    render() {
-        const state = this.objectManager.getRenderState();
-        this.renderer.render(state);
-    }
-
+    // #Todo 나중에 디테일 패널 같은 곳으로 옮기자자
     renderHistoryList() {
         const displayShapes = this.objectManager.getShapes();
         const selectedId = this.objectManager.selectedId;
@@ -108,7 +60,7 @@ class CanvaApp {
             div.addEventListener("click", () => {
                 this.objectManager.selectedId = it.id;
                 TopMenu.getInstance().setTool(EShapeKind.Select);
-                this._requestRender();
+                this.renderer.requestRender();
             });
 
             this.shapeListEl.appendChild(div);
@@ -117,41 +69,7 @@ class CanvaApp {
 
     setTool(tool) {
         this.objectManager.setTool(tool);
-        this._requestRender();
-    }
-
-    undo() {
-        this.objectManager.undo();
-    }
-
-    clearAll() {
-        this.objectManager.clearAll();
-    }
-
-    zoomIn() {
-        const r = this.renderer;
-        const rect = r.canvas.getBoundingClientRect();
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
-        const scale = Number(r.getViewScale()) || 1;
-        const next = Util.clamp(scale * 1.1, 0.2, 4);
-        if (next === scale) return;
-        r.zoomAt(centerX, centerY, next);
-        TopMenu.getInstance().syncZoomValueOut();
-        this._requestRender();
-    }
-
-    zoomOut() {
-        const r = this.renderer;
-        const rect = r.canvas.getBoundingClientRect();
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
-        const scale = Number(r.getViewScale()) || 1;
-        const next = Util.clamp(scale / 1.1, 0.2, 4);
-        if (next === scale) return;
-        r.zoomAt(centerX, centerY, next);
-        TopMenu.getInstance().syncZoomValueOut();
-        this._requestRender();
+        this.renderer.requestRender();
     }
 
     defaultShapes() {
@@ -161,7 +79,6 @@ class CanvaApp {
 
         this.objectManager.addShape(
             new RectShape({
-                id: this.uid("rc"),
                 start: { x: 120, y: 100 },
                 end: { x: 420, y: 280 },
                 style: style1,
@@ -169,7 +86,6 @@ class CanvaApp {
         );
         this.objectManager.addShape(
             new CircleShape({
-                id: this.uid("ci"),
                 center: { x: 650, y: 220 },
                 radius: 90,
                 style: style2,
@@ -177,7 +93,6 @@ class CanvaApp {
         );
         this.objectManager.addShape(
             new LineShape({
-                id: this.uid("ln"),
                 start: { x: 160, y: 420 },
                 end: { x: 520, y: 540 },
                 style: style3,
@@ -185,7 +100,6 @@ class CanvaApp {
         );
         this.objectManager.addShape(
             new PointShape({
-                id: this.uid("pt"),
                 position: { x: 820, y: 420 },
                 radius: 6,
                 style: { ...style3, stroke: "#ff4d4d" },
@@ -193,7 +107,6 @@ class CanvaApp {
         );
         this.objectManager.addShape(
             new PolygonShape({
-                id: this.uid("poly"),
                 points: [
                     { x: 880, y: 120 },
                     { x: 1030, y: 150 },
@@ -211,39 +124,22 @@ class CanvaApp {
         const toolOptionInfos = ShapeMenuList;
         const canvas = Util.getRequiredEl("canvas");
 
-        const getWorld = (e) => this.renderer.getWorldPointFromEvent(e);
-        const requestRender = this._requestRender;
-        const getStyle = () => this.getCurrentShapeStyle();
-        const uidFn = (prefix) => this.uid(prefix);
-
-        this.objectManager.bindPointerEvents(
-            canvas,
-            getWorld,
-            requestRender,
-            getStyle,
-            uidFn,
-            this.renderer
-        );
-        this.renderer.bindPanZoomEvents(
-            this.objectManager,
-            requestRender,
-            () => TopMenu.getInstance().syncZoomValueOut()
-        );
-
         const topMenu = TopMenu.getInstance({ toolOptionInfos });
-        topMenu.bindApp(this);
         topMenu.createToolSelectOptions(toolOptionInfos);
         const defaultToolValue = topMenu.getDefaultToolValue(toolOptionInfos);
         topMenu.setTool(defaultToolValue);
         topMenu.bindEventListeners();
+        this.objectManager.bindPointerEvents(canvas, this.renderer);
+        this.renderer.bindPanZoomEvents();
 
         const inputController = EditorInputController.getInstance({ toolOptionInfos });
         inputController.bindObjectManager(this.objectManager);
         inputController.bindEventListeners();
 
+        window.addEventListener("canvas:rendered", this._onCanvasRenderedBound);
         this.defaultShapes();
-        this._requestRender();
-        window.addEventListener("resize", () => this._requestRender());
+        this.renderer.requestRender();
+        window.addEventListener("resize", () => this.renderer.requestRender());
     }
 }
 

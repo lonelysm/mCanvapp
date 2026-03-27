@@ -1,8 +1,10 @@
 // 상단 메뉴(툴 선택, 선 두께, 줌, 되돌리기, 전체 삭제) 전용 클래스
-// bindApp(app)으로 CanvaApp에 연결한 뒤, 이벤트 시 app 멤버 호출
+// 싱글턴(ObjectManager/Renderer) 직접 참조로 이벤트 처리
 
 import { EShapeKind, ShapeMenuList, ToolbarGroupInfos } from "./const.js";
 import { Util } from "./util.js";
+import { CanvasRenderer } from "./canvas_renderer.js";
+import { ObjectManagerClass } from "./object_manager.js";
 
 class TopMenu {
     static #instance = null;
@@ -19,7 +21,7 @@ class TopMenu {
             return TopMenu.#instance;
         }
 
-        this.app = null;
+        this.renderer = CanvasRenderer.getInstance();
         const toolOptionInfosCandidate = args.toolOptionInfos ?? null;
         this.toolOptionInfos = Array.isArray(toolOptionInfosCandidate) ? toolOptionInfosCandidate : [...ShapeMenuList];
 
@@ -73,15 +75,10 @@ class TopMenu {
         }
     }
 
-    bindApp(app) {
-        this.app = app;
-    }
-
     setTool(tool) {
-        if (this.app === null) {
-            return;
-        }
-        this.app.setTool(tool);
+        const objectManager = ObjectManagerClass.getInstance();
+        objectManager.setTool(tool);
+        this.renderer.requestRender();
         this.toolSelectEl.value = tool;
     }
 
@@ -111,20 +108,13 @@ class TopMenu {
 
     /** 렌더러 viewScale을 zoomValueOut에 반영 (휠/버튼 줌 등 스케일 변경 시 호출) */
     syncZoomValueOut() {
-        if (this.app === null) {
-            return;
-        }
-        const scale = Number(this.app.getViewScale()) || 1;
+        const scale = Number(this.renderer.getViewScale()) || 1;
         this.zoomValueOutEl.value = `${Math.round(scale * 100)}%`;
     }
 
     bindEventListeners() {
-        if (this.app === null) {
-            console.warn("[TopMenu] bindEventListeners: app가 바인드되지 않았습니다.");
-        } else {
-            this.lineWidthOutEl.value = String(this.lineWidthEl.value);
-            this.zoomValueOutEl.value = `${Math.round((this.app.getViewScale?.() ?? 1) * 100)}%`;
-        }
+        this.lineWidthOutEl.value = String(this.lineWidthEl.value);
+        this.zoomValueOutEl.value = `${Math.round((this.renderer.getViewScale?.() ?? 1) * 100)}%`;
 
         this.toolSelectEl.addEventListener("change", () => {
             this.setTool(this.toolSelectEl.value);
@@ -132,33 +122,29 @@ class TopMenu {
 
         this.lineWidthEl.addEventListener("input", () => {
             this.lineWidthOutEl.value = String(this.lineWidthEl.value);
-            if (this.app !== null) {
-                this.app.requestRender();
+            if (this.renderer !== null) {
+                this.renderer.requestRender();
             }
         });
 
         this.zoomOutBtnEl.addEventListener("click", () => {
-            if (this.app !== null) {
-                this.app.zoomOut();
+            if (this.renderer !== null) {
+                this.renderer.zoomOut();
             }
         });
 
         this.zoomInBtnEl.addEventListener("click", () => {
-            if (this.app !== null) {
-                this.app.zoomIn();
+            if (this.renderer !== null) {
+                this.renderer.zoomIn();
             }
         });
 
         this.undoBtnEl.addEventListener("click", () => {
-            if (this.app !== null) {
-                this.app.undo();
-            }
+            ObjectManagerClass.getInstance().undo();
         });
 
         this.clearBtnEl.addEventListener("click", () => {
-            if (this.app !== null) {
-                this.app.clearAll();
-            }
+            ObjectManagerClass.getInstance().clearAll();
         });
     }
 }

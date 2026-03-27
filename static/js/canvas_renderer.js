@@ -5,6 +5,8 @@
 
 import { EShapeKind } from "./const.js";
 import { Util } from "./util.js";
+import { TopMenu } from "./top_menu.js";
+import { ObjectManagerClass } from "./object_manager.js";
 
 class CanvasRenderer {
     static #instance = null;
@@ -37,6 +39,17 @@ class CanvasRenderer {
         this.viewScale = 1;
 
         CanvasRenderer.#instance = this;
+    }
+
+    /** 렌더러가 직접 렌더를 요청하고 후처리까지 실행 */
+    requestRender() {
+        const objectManager = ObjectManagerClass.getInstance();
+        const editorState = objectManager.getRenderState();
+        if (editorState === null || editorState === undefined) {
+            return;
+        }
+        this.render(editorState);
+        window.dispatchEvent(new Event("canvas:rendered"));
     }
 
     /** 현재 뷰 스케일(줌) 반환 */
@@ -88,6 +101,31 @@ class CanvasRenderer {
         this.viewScale = next;
     }
 
+    /** 캔버스 중심 기준으로 줌 인 처리하고, UI/렌더 동기화까지 수행 */
+    zoomIn() {
+        this._zoomByFactor(1.1);
+    }
+
+    /** 캔버스 중심 기준으로 줌 아웃 처리하고, UI/렌더 동기화까지 수행 */
+    zoomOut() {
+        this._zoomByFactor(1 / 1.1);
+    }
+
+    /** 버튼 줌 공통 로직: 중심점 고정 확대/축소 후 콜백 갱신 */
+    _zoomByFactor(scaleFactor) {
+        const rect = this.canvas.getBoundingClientRect();
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        const scale = Number(this.getViewScale()) || 1;
+        const next = Util.clamp(scale * scaleFactor, 0.2, 4);
+        if (next === scale) {
+            return;
+        }
+        this.zoomAt(centerX, centerY, next);
+        TopMenu.getInstance().syncZoomValueOut();
+        this.requestRender();
+    }
+
     /** 이벤트(화면 좌표)를 월드 좌표로 변환. ObjectManager 등에서 사용 */
     getWorldPointFromEvent(event) {
         const rect = this.canvas.getBoundingClientRect();
@@ -101,11 +139,7 @@ class CanvasRenderer {
     }
 
     /** 팬/줌 이벤트 바인드. ObjectManager 다음에 등록해 배경 드래그·휠 줌만 처리 */
-    bindPanZoomEvents(objectManager, requestRender, syncZoomOut) {
-        this._objectManager = objectManager;
-        this._requestRender = requestRender;
-        this._syncZoomOut = syncZoomOut ?? (() => {});
-
+    bindPanZoomEvents() {
         this._onPointerDownBound = (e) => this._onPanPointerDown(e);
         this._onPointerMoveBound = (e) => this._onPanPointerMove(e);
         this._onPointerUpBound = (e) => this._onPanPointerUp(e);
@@ -122,31 +156,28 @@ class CanvasRenderer {
         this.canvas.removeEventListener("pointermove", this._onPointerMoveBound);
         this.canvas.removeEventListener("pointerup", this._onPointerUpBound);
         this.canvas.removeEventListener("wheel", this._onWheelBound);
-        this._objectManager = null;
-        this._requestRender = null;
-        this._syncZoomOut = null;
     }
 
     _onPanPointerDown(e) {
-        if (!this._objectManager || !this._requestRender) return;
-        if (this._objectManager.getCurrentToolMode() !== EShapeKind.Select) return;
+        const objectManager = ObjectManagerClass.getInstance();
+        if (objectManager.getCurrentToolMode() !== EShapeKind.Select) return;
         const worldPoint = this.getWorldPointFromEvent(e);
-        if (this._objectManager.pickShape(worldPoint) !== null) return;
+        if (objectManager.pickShape(worldPoint) !== null) return;
 
         this.startPan();
         this._panStartWorld = worldPoint;
         this.canvas.setPointerCapture(e.pointerId);
         this._panPointerId = e.pointerId;
-        this._requestRender();
+        this.requestRender();
     }
 
     _onPanPointerMove(e) {
-        if (this.viewOffsetAtPanStart === null || this._panStartWorld === undefined || !this._requestRender) return;
+        if (this.viewOffsetAtPanStart === null || this._panStartWorld === undefined) return;
         const worldPoint = this.getWorldPointFromEvent(e);
         const deltaX = worldPoint.x - this._panStartWorld.x;
         const deltaY = worldPoint.y - this._panStartWorld.y;
         this.updatePan(deltaX, deltaY);
-        this._requestRender();
+        this.requestRender();
     }
 
     _onPanPointerUp(e) {
@@ -154,12 +185,11 @@ class CanvasRenderer {
         this.endPan();
         this._panPointerId = null;
         this._panStartWorld = undefined;
-        this._requestRender?.();
+        this.requestRender();
     }
 
     _onWheel(e) {
         e.preventDefault();
-        if (!this._requestRender || !this._syncZoomOut) return;
         const rect = this.canvas.getBoundingClientRect();
         const screenX = e.clientX - rect.left;
         const screenY = e.clientY - rect.top;
@@ -171,8 +201,8 @@ class CanvasRenderer {
         const clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
         if (clamped === scale) return;
         this.zoomAt(screenX, screenY, clamped);
-        this._syncZoomOut();
-        this._requestRender();
+        TopMenu.getInstance().syncZoomValueOut();
+        this.requestRender();
     }
 
     setGridStep(step) {
