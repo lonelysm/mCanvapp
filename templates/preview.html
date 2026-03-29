@@ -19,31 +19,166 @@
             </section>
 
             <aside class="side">
-                <div class="panel">
-                    <div class="panel__title">사용법</div>
+                <div class="panel panel--scroll panel--collapsible" id="hierarchyPanel">
+                    <div class="panel__head panel__head--collapsible">
+                        <button
+                            type="button"
+                            class="panel__toggle"
+                            id="hierarchyPanelToggle"
+                            aria-expanded="true"
+                            aria-controls="hierarchyPanelBody"
+                        >
+                            <span class="panel__toggleIcon" aria-hidden="true"></span>
+                            <span class="panel__title">계층 구조</span>
+                        </button>
+                        <button id="addEmptyGroupBtn" type="button" class="btn btn--small" title="선택된 그룹(없으면 세션) 아래에 빈 그룹 추가">
+                            + 그룹
+                        </button>
+                    </div>
+                    <div id="hierarchyPanelBody" class="panel__collapsibleBody">
+                        <p class="panel__hint">그룹·도형을 눌러 선택합니다. <b>+ 그룹</b>으로 중첩 그룹을 넣을 수 있습니다.</p>
+                        <div id="hierarchyTree" class="hierarchyTree" aria-label="계층 구조"></div>
+                    </div>
+                </div>
+
+                <div class="panel detailPanelShell panel--collapsible" id="detailPanelShell">
+                    <button
+                        type="button"
+                        class="panel__toggle panel__toggle--block"
+                        id="detailPanelToggle"
+                        aria-expanded="true"
+                        aria-controls="detailPanelBody"
+                    >
+                        <span class="panel__toggleIcon" aria-hidden="true"></span>
+                        <span class="panel__title">디테일</span>
+                    </button>
+                    <div id="detailPanelBody" class="panel__collapsibleBody">
+                        <div class="detailForm">
+                            <label class="detailField">
+                                <span class="detailField__label">이름</span>
+                                <input id="detailName" class="detailField__input" type="text" autocomplete="off" disabled placeholder="항목을 선택하세요" />
+                            </label>
+                            <div id="detailLeafBlock" class="detailBlock">
+                                <details class="detailCategory" id="detailCategoryGeom" open>
+                                    <summary class="detailCategory__summary">위치·크기</summary>
+                                    <div class="detailCategory__body">
+                                        <div class="detailField detailField--row">
+                                            <span class="detailField__label">상대 위치 (같은 부모 그룹 안 첫 도형 좌상단 대비·월드)</span>
+                                            <div class="detailCoords">
+                                                <span class="detailCoords__item">X <output id="detailRelX" class="detailCoords__value">—</output></span>
+                                                <span class="detailCoords__item">Y <output id="detailRelY" class="detailCoords__value">—</output></span>
+                                            </div>
+                                        </div>
+                                        <div id="detailGeomPanelPoint" class="detailGeomPanel" hidden>
+                                            <span class="detailField__label">그룹 로컬</span>
+                                            <div class="detailField__grid">
+                                                <label class="detailMiniField">X <input id="detailGeomPointX" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                                <label class="detailMiniField">Y <input id="detailGeomPointY" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                                <label class="detailMiniField">반지름 <input id="detailGeomPointR" class="detailField__input detailField__input--num" type="number" step="any" min="0.5" /></label>
+                                            </div>
+                                        </div>
+                                        <div id="detailGeomPanelLine" class="detailGeomPanel" hidden>
+                                            <span class="detailField__label">선 끝점 (그룹 로컬)</span>
+                                            <div class="detailField__grid detailField__grid--4">
+                                                <label class="detailMiniField">시작 X <input id="detailGeomLineSx" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                                <label class="detailMiniField">시작 Y <input id="detailGeomLineSy" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                                <label class="detailMiniField">끝 X <input id="detailGeomLineEx" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                                <label class="detailMiniField">끝 Y <input id="detailGeomLineEy" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                            </div>
+                                        </div>
+                                        <div id="detailGeomPanelCircle" class="detailGeomPanel" hidden>
+                                            <span class="detailField__label">그룹 로컬</span>
+                                            <div class="detailField__grid">
+                                                <label class="detailMiniField">중심 X <input id="detailGeomCircleCx" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                                <label class="detailMiniField">중심 Y <input id="detailGeomCircleCy" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                                <label class="detailMiniField">반지름 <input id="detailGeomCircleR" class="detailField__input detailField__input--num" type="number" step="any" min="0.5" /></label>
+                                            </div>
+                                        </div>
+                                        <div id="detailGeomPanelRect" class="detailGeomPanel" hidden>
+                                            <span class="detailField__label">그룹 로컬</span>
+                                            <div class="detailField__grid">
+                                                <label class="detailMiniField">X <input id="detailGeomRectX" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                                <label class="detailMiniField">Y <input id="detailGeomRectY" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                                <label class="detailMiniField">너비 <input id="detailGeomRectW" class="detailField__input detailField__input--num" type="number" step="any" min="1" /></label>
+                                                <label class="detailMiniField">높이 <input id="detailGeomRectH" class="detailField__input detailField__input--num" type="number" step="any" min="1" /></label>
+                                            </div>
+                                        </div>
+                                        <div id="detailGeomPanelPath" class="detailGeomPanel" hidden>
+                                            <p class="detailField__label detailField__hint">다각형·자유곡선은 캔버스에서 기하를 편집합니다. 스타일은 아래 카테고리에서 바꿀 수 있습니다.</p>
+                                        </div>
+                                    </div>
+                                </details>
+                                <details class="detailCategory" id="detailCategoryStyle" open>
+                                    <summary class="detailCategory__summary">스타일</summary>
+                                    <div class="detailCategory__body">
+                                        <div class="detailStyleRow">
+                                            <label class="detailMiniField detailMiniField--color">선 색 <input id="detailStyleStroke" type="color" class="detailField__input detailField__input--color" /></label>
+                                            <label class="detailMiniField detailMiniField--check"><input id="detailStyleFillEnabled" type="checkbox" /> 채움</label>
+                                            <label class="detailMiniField detailMiniField--color">채움 색 <input id="detailStyleFill" type="color" class="detailField__input detailField__input--color" /></label>
+                                            <label class="detailMiniField">채움 불투명도 <input id="detailStyleFillOpacity" class="detailField__input detailField__input--range" type="range" min="0" max="100" step="1" value="20" /><output id="detailStyleFillOpacityOut" class="detailStyleRow__out">20%</output></label>
+                                            <label class="detailMiniField">선 두께 <input id="detailStyleLineWidth" class="detailField__input detailField__input--num" type="number" min="1" max="50" step="1" /></label>
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
+                            <div id="detailGroupBlock" class="detailBlock" hidden>
+                                <details class="detailCategory" id="detailCategoryGroupGeom" open>
+                                    <summary class="detailCategory__summary">위치·크기</summary>
+                                    <div class="detailCategory__body">
+                                        <p class="detailCategory__hint">콘텐츠 바운딩 좌상단·월드 좌표</p>
+                                        <div class="detailField__grid">
+                                            <label class="detailMiniField">X <input id="detailGroupTxInput" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                            <label class="detailMiniField">Y <input id="detailGroupTyInput" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel panel--collapsible side__panelShapeList" id="shapeListPanel">
+                    <button
+                        type="button"
+                        class="panel__toggle panel__toggle--block"
+                        id="shapeListPanelToggle"
+                        aria-expanded="true"
+                        aria-controls="shapeListPanelBody"
+                    >
+                        <span class="panel__toggleIcon" aria-hidden="true"></span>
+                        <span class="panel__title">도형 목록</span>
+                    </button>
+                    <div id="shapeListPanelBody" class="panel__collapsibleBody">
+                        <div id="shapeList" class="shapeList"></div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <div id="helpInfoDialog" class="helpDialog" hidden aria-hidden="true">
+            <div id="helpInfoBackdrop" class="helpDialog__backdrop" tabindex="-1"></div>
+            <div class="helpDialog__panel" role="dialog" aria-modal="true" aria-labelledby="helpInfoTitle">
+                <div class="helpDialog__header">
+                    <h3 id="helpInfoTitle" class="helpDialog__title">사용법 · 단축키</h3>
+                    <button type="button" id="helpInfoCloseBtn" class="btn btn--ghost btn--small" aria-label="닫기">×</button>
+                </div>
+                <div class="helpDialog__body">
+                    <p class="helpDialog__sectionTitle">사용법</p>
                     <ul class="help">
                         <li><b>점</b>: 클릭</li>
                         <li><b>선/사각형/원</b>: 드래그</li>
                         <li><b>다각형</b>: 클릭으로 점 추가, <b>더블클릭</b> 또는 <b>Enter</b>로 종료</li>
                         <li><b>자유곡선</b>: 드래그</li>
-                        <li><b>선택/이동</b>: 도형 클릭 후 드래그, <b>Del</b>로 삭제</li>
+                        <li><b>선택/이동</b>: 도형·그룹 클릭 후 드래그, <b>Del</b>로 삭제</li>
                     </ul>
-                </div>
-
-                <div class="panel">
-                    <div class="panel__title">단축키</div>
+                    <p class="helpDialog__sectionTitle">단축키</p>
                     <ul class="help">
                         <li><b>V</b> 선택, <b>P</b> 점, <b>L</b> 선, <b>C</b> 원, <b>R</b> 사각형, <b>G</b> 다각형, <b>F</b> 자유곡선</li>
                         <li><b>Ctrl+Z</b> 되돌리기</li>
                     </ul>
                 </div>
-
-                <div class="panel">
-                    <div class="panel__title">도형 목록</div>
-                    <div id="shapeList" class="shapeList"></div>
-                </div>
-            </aside>
-        </main>
+            </div>
+        </div>
 
         <footer class="footer">
             <div class="footer__hint">캔버스는 리사이즈 시 DPR(고해상도) 스케일로 선명하게 렌더링됩니다.</div>
@@ -52,5 +187,5 @@
 {% endblock %}
 
 {% block body_scripts %}
-    <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/StyleNode/app.js') }}"></script>
 {% endblock %}

@@ -4,9 +4,10 @@
 // - HUD 텍스트 업데이트
 
 import { EShapeKind } from "./const.js";
-import { Util } from "./util.js";
+import { Util } from "../util.js";
 import { TopMenu } from "./top_menu.js";
 import { ObjectManagerClass } from "./object_manager.js";
+import { NodeType, getAccumulatedOffsetForLeaf, getGroupWorldBounds } from "./style_node_tree.js";
 
 class CanvasRenderer {
     static #instance = null;
@@ -222,9 +223,10 @@ class CanvasRenderer {
         return devicePixelRatio;
     }
 
-    // state: { shapes|displayShapes, draftShape, draftPolygon, selectedId, pointerPos, currentToolMode }
+    // state: documentRoot, displayShapes, draftShape, draftPolygon, selectedId, selectedKind, pointerPos, currentToolMode
     render(editorState) {
         const displayShapes = editorState.displayShapes ?? [];
+        const documentRoot = editorState.documentRoot ?? null;
         const devicePixelRatio = this.resizeToDisplaySize();
         const viewScale = Number(this.viewScale) || 1;
         const viewOffset = this.viewOffset;
@@ -243,8 +245,13 @@ class CanvasRenderer {
         const worldH = canvasRectHeight / viewScale;
         this._drawGrid(worldW, worldH);
 
-        for (const shape of displayShapes)
-            this._drawShape(shape);
+        if (documentRoot !== null) {
+            this._drawNode(documentRoot, 0, 0);
+        } else {
+            for (const shape of displayShapes) {
+                this._drawShape(shape);
+            }
+        }
 
         if (editorState.draftShape !== null) {
             this._drawShape(editorState.draftShape);
@@ -253,12 +260,74 @@ class CanvasRenderer {
             this._drawShape(editorState.draftPolygon);
         }
 
-        const selectedShape = editorState.selectedId ? displayShapes.find((shape) => shape.id === editorState.selectedId) : null;
-        if (selectedShape !== null) {
-            this._drawSelectionOutline(selectedShape);
+        const selId = editorState.selectedId ?? null;
+        const selKind = editorState.selectedKind ?? null;
+        if (selId !== null && documentRoot !== null) {
+            if (selKind === "leaf") {
+                const selectedShape = displayShapes.find((shape) => shape.id === selId) ?? null;
+                if (selectedShape !== null) {
+                    const off = getAccumulatedOffsetForLeaf(documentRoot, selId, 0, 0);
+                    const worldShape = off !== null ? selectedShape.translate(off.x, off.y) : selectedShape;
+                    this._drawSelectionOutline(worldShape);
+                }
+            } else if (selKind === "group") {
+                this._drawSelectedGroupOutline(documentRoot, selId, 0, 0);
+            }
+        } else if (selId !== null) {
+            const selectedShape = displayShapes.find((shape) => shape.id === selId) ?? null;
+            if (selectedShape !== null) {
+                this._drawSelectionOutline(selectedShape);
+            }
         }
 
         this._updateHud(editorState);
+    }
+
+    /** 그룹/리프 트리를 누적 translate로 그린다. */
+    _drawNode(node, ox, oy) {
+        if (node === null || node === undefined) return;
+        if (node.nodeType === NodeType.LEAF) {
+            this._drawShape(node.shape);
+            return;
+        }
+        if (node.nodeType !== NodeType.GROUP) return;
+        const gx = ox + node.transform.x;
+        const gy = oy + node.transform.y;
+        this.screenCtx.save();
+        this.screenCtx.translate(node.transform.x, node.transform.y);
+        for (const ch of node.children) {
+            this._drawNode(ch, gx, gy);
+        }
+        this.screenCtx.restore();
+    }
+
+    /** 선택된 그룹의 월드 바운딩 박스만 표시한다. */
+    _drawSelectedGroupOutline(root, selectedGroupId, ox, oy) {
+        const findBounds = (node, px, py) => {
+            if (node === null || node === undefined) return null;
+            if (node.nodeType === NodeType.GROUP) {
+                const gx = px + node.transform.x;
+                const gy = py + node.transform.y;
+                if (node.id === selectedGroupId) {
+                    return getGroupWorldBounds(node, px, py);
+                }
+                for (const ch of node.children) {
+                    const b = findBounds(ch, gx, gy);
+                    if (b !== null) return b;
+                }
+            } else if (node.nodeType === NodeType.LEAF) {
+                return null;
+            }
+            return null;
+        };
+        const b = findBounds(root, ox, oy);
+        if (b === null) return;
+        this.screenCtx.save();
+        this.screenCtx.strokeStyle = "rgba(255,255,255,0.85)";
+        this.screenCtx.lineWidth = 1.5;
+        this.screenCtx.setLineDash([6, 6]);
+        this.screenCtx.strokeRect(b.minX - 4, b.minY - 4, b.maxX - b.minX + 8, b.maxY - b.minY + 8);
+        this.screenCtx.restore();
     }
 
     /** 도형 본체 그리기. 각 Shape 클래스의 drawShape(ctx)에 위임 */

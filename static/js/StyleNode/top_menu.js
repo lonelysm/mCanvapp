@@ -2,7 +2,7 @@
 // 싱글턴(ObjectManager/Renderer) 직접 참조로 이벤트 처리
 
 import { EShapeKind, ShapeMenuList, ToolbarGroupInfos } from "./const.js";
-import { Util } from "./util.js";
+import { Util } from "../util.js";
 import { CanvasRenderer } from "./canvas_renderer.js";
 import { ObjectManagerClass } from "./object_manager.js";
 
@@ -29,6 +29,9 @@ class TopMenu {
         this.buildToolbar(toolbarContainerEl);
 
         this.toolSelectEl = Util.getRequiredEl("toolSelect");
+        this.strokeColorEl = Util.getRequiredEl("strokeColor");
+        this.fillEnabledEl = Util.getRequiredEl("fillEnabled");
+        this.fillColorEl = Util.getRequiredEl("fillColor");
         this.lineWidthEl = Util.getRequiredEl("lineWidth");
         this.lineWidthOutEl = Util.getRequiredEl("lineWidthOut");
         this.zoomOutBtnEl = Util.getRequiredEl("zoomOutBtn");
@@ -36,6 +39,7 @@ class TopMenu {
         this.zoomValueOutEl = Util.getRequiredEl("zoomValueOut");
         this.undoBtnEl = Util.getRequiredEl("undoBtn");
         this.clearBtnEl = Util.getRequiredEl("clearBtn");
+        this.helpInfoBtnEl = document.getElementById("helpInfoBtn");
 
         TopMenu.#instance = this;
     }
@@ -120,12 +124,24 @@ class TopMenu {
             this.setTool(this.toolSelectEl.value);
         });
 
+        const objectManager = ObjectManagerClass.getInstance();
         this.lineWidthEl.addEventListener("input", () => {
             this.lineWidthOutEl.value = String(this.lineWidthEl.value);
+            objectManager.syncDraftStyleFromToolbar();
             if (this.renderer !== null) {
                 this.renderer.requestRender();
             }
         });
+
+        const requestRenderFromToolbarStyle = () => {
+            objectManager.syncDraftStyleFromToolbar();
+            if (this.renderer !== null) {
+                this.renderer.requestRender();
+            }
+        };
+        this.strokeColorEl.addEventListener("input", requestRenderFromToolbarStyle);
+        this.fillColorEl.addEventListener("input", requestRenderFromToolbarStyle);
+        this.fillEnabledEl.addEventListener("change", requestRenderFromToolbarStyle);
 
         this.zoomOutBtnEl.addEventListener("click", () => {
             if (this.renderer !== null) {
@@ -146,6 +162,39 @@ class TopMenu {
         this.clearBtnEl.addEventListener("click", () => {
             ObjectManagerClass.getInstance().clearAll();
         });
+
+        const helpDialog = document.getElementById("helpInfoDialog");
+        const helpClose = document.getElementById("helpInfoCloseBtn");
+        const helpBackdrop = document.getElementById("helpInfoBackdrop");
+
+        const openHelp = () => {
+            console.info("[top_menu] 도움말 열기");
+            if (helpDialog === null) return;
+            helpDialog.hidden = false;
+            helpDialog.setAttribute("aria-hidden", "false");
+        };
+
+        const closeHelp = () => {
+            console.info("[top_menu] 도움말 닫기");
+            if (helpDialog === null) return;
+            helpDialog.hidden = true;
+            helpDialog.setAttribute("aria-hidden", "true");
+        };
+
+        if (this.helpInfoBtnEl !== null) {
+            this.helpInfoBtnEl.addEventListener("click", () => openHelp());
+        }
+        if (helpClose !== null) {
+            helpClose.addEventListener("click", () => closeHelp());
+        }
+        if (helpBackdrop !== null) {
+            helpBackdrop.addEventListener("click", () => closeHelp());
+        }
+        if (helpDialog !== null) {
+            helpDialog.addEventListener("keydown", (e) => {
+                if (e.key === "Escape") closeHelp();
+            });
+        }
     }
 }
 

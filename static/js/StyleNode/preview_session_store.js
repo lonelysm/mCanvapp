@@ -1,9 +1,12 @@
 // Preview 페이지 편집 상태를 sessionStorage에 두어, 다른 Flask 페이지로 갔다 와도 유지한다.
 
 import { shapeFromPlain, shapeToPlain } from "./shape_snapshot.js";
+import { nodeFromPlain, nodeToPlain, wrapFlatShapesInSessionRoot } from "./shape_tree_snapshot.js";
+import { createDocumentRoot, ensureDocumentRootTree } from "./style_node_tree.js";
 
-const STORAGE_KEY = "mCanvapp.previewSession.v1";
-const SCHEMA_VERSION = 1;
+const STORAGE_KEY = "mCanvapp.previewSession.v2";
+const SCHEMA_VERSION_V1 = 1;
+const SCHEMA_VERSION = 2;
 
 /**
  * 현재 ObjectManager·Renderer·툴바에서 저장용 스냅샷 객체를 만든다.
@@ -13,8 +16,9 @@ export function buildPreviewSnapshot(deps) {
     const renderer = deps.renderer;
     const topMenu = deps.topMenu;
 
-    const shapes = objectManager.shapes.map(shapeToPlain).filter((p) => p !== null);
-    const taskHistories = objectManager.taskHistories.map((layer) => layer.map(shapeToPlain).filter((p) => p !== null));
+    const documentPlain = nodeToPlain(objectManager.documentRoot);
+    const shapes = objectManager.getShapes().map(shapeToPlain).filter((p) => p !== null);
+    const taskHistories = objectManager.taskHistories.map((doc) => nodeToPlain(doc)).filter((p) => p !== null);
 
     const strokeColorEl = document.getElementById("strokeColor");
     const fillEnabledEl = document.getElementById("fillEnabled");
@@ -24,16 +28,19 @@ export function buildPreviewSnapshot(deps) {
     const ui = {
         strokeColor: strokeColorEl?.value ?? "#2f6df6",
         fillEnabled: fillEnabledEl?.checked ?? true,
-        fillColor: fillColorEl?.value ?? "#2f6df633",
+        fillColor: fillColorEl?.value ?? "#2f6df6",
         lineWidth: lineWidthEl?.value ?? "3",
         toolSelect: topMenu.toolSelectEl?.value ?? null,
     };
 
     return {
         version: SCHEMA_VERSION,
+        document: documentPlain,
         shapes,
         taskHistories,
         selectedId: objectManager.selectedId,
+        selectedKind: objectManager.selectedKind,
+        insertTargetGroupId: objectManager.insertTargetGroupId,
         currentToolMode: objectManager.currentToolMode,
         viewOffset: { ...renderer.viewOffset },
         viewScale: renderer.viewScale,
@@ -54,11 +61,37 @@ export function applyPreviewSnapshot(snapshot, deps) {
     const renderer = deps.renderer;
     const topMenu = deps.topMenu;
 
-    const shapes = (snapshot.shapes ?? []).map(shapeFromPlain).filter((s) => s !== null);
-    objectManager.setShapes(shapes);
+    const ver = snapshot.version;
+
+    if (ver === SCHEMA_VERSION) {
+        const rawDoc = nodeFromPlain(snapshot.document);
+        objectManager.documentRoot = ensureDocumentRootTree(rawDoc !== null ? rawDoc : createDocumentRoot());
+        objectManager.insertTargetGroupId = snapshot.insertTargetGroupId ?? objectManager.documentRoot.id;
+        objectManager.selectedKind = snapshot.selectedKind ?? null;
+    } else if (ver === SCHEMA_VERSION_V1) {
+        const shapes = (snapshot.shapes ?? []).map(shapeFromPlain).filter((s) => s !== null);
+        objectManager.documentRoot = wrapFlatShapesInSessionRoot(shapes);
+        objectManager.insertTargetGroupId = objectManager.documentRoot.id;
+        objectManager.selectedKind = snapshot.selectedId ? "leaf" : null;
+    } else {
+        console.warn("[preview_session_store] 알 수 없는 version=%s", ver);
+        return;
+    }
 
     const layers = snapshot.taskHistories ?? [];
-    objectManager.taskHistories = layers.map((layer) => layer.map(shapeFromPlain).filter((s) => s !== null));
+    if (ver === SCHEMA_VERSION) {
+        objectManager.taskHistories = layers
+            .map((p) => {
+                const n = nodeFromPlain(p);
+                return n === null ? null : ensureDocumentRootTree(n);
+            })
+            .filter((n) => n !== null);
+    } else {
+        objectManager.taskHistories = layers.map((layer) => {
+            const sh = (layer ?? []).map(shapeFromPlain).filter((s) => s !== null);
+            return wrapFlatShapesInSessionRoot(sh);
+        });
+    }
 
     objectManager.selectedId = snapshot.selectedId ?? null;
     objectManager.draftShape = null;
@@ -97,13 +130,19 @@ export function loadPreviewSnapshotFromStorage() {
     console.info("[preview_session_store] sessionStorage 읽기 시작");
     try {
         const raw = sessionStorage.getItem(STORAGE_KEY);
-        if (raw === null || raw === undefined || raw === "") {
+        const rawLegacy = raw === null || raw === "" ? sessionStorage.getItem("mCanvapp.previewSession.v1") : null;
+        const useRaw = raw !== null && raw !== "" ? raw : rawLegacy;
+        if (useRaw === null || useRaw === undefined || useRaw === "") {
             console.info("[preview_session_store] sessionStorage 비어 있음, 읽기 종료");
             return null;
         }
-        const data = JSON.parse(raw);
-        if (data === null || typeof data !== "object" || data.version !== SCHEMA_VERSION) {
-            console.warn("[preview_session_store] 스키마 불일치 또는 잘못된 JSON");
+        const data = JSON.parse(useRaw);
+        if (data === null || typeof data !== "object") {
+            console.warn("[preview_session_store] 잘못된 JSON");
+            return null;
+        }
+        if (data.version !== SCHEMA_VERSION && data.version !== SCHEMA_VERSION_V1) {
+            console.warn("[preview_session_store] 스키마 불일치");
             return null;
         }
         console.info("[preview_session_store] sessionStorage 읽기 완료");

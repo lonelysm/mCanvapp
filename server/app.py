@@ -1,8 +1,17 @@
 # Flask 앱 엔트리: 라우트 및 API 제공. 데이터 파싱/저장은 서버, 캔버스 렌더/뷰는 프론트 JS.
 
-import os
 import logging
-from flask import Flask, render_template, request, jsonify
+import os
+import sys
+
+from flask import Flask, jsonify, render_template, request
+
+# server/ 를 패키지 루트로 두어 StyleNode 블루프린트를 import 한다.
+_SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SERVER_DIR not in sys.path:
+    sys.path.insert(0, _SERVER_DIR)
+
+from StyleNode.routes import style_node_bp
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,6 +23,8 @@ app = Flask(
     template_folder=os.path.join(ROOT, "templates"),
     static_folder=os.path.join(ROOT, "static"),
 )
+
+app.register_blueprint(style_node_bp)
 
 
 @app.route("/")
@@ -27,20 +38,6 @@ def home():
         return html
     except Exception as e:
         logger.exception("GET / 처리 실패: %s", e)
-        raise
-
-
-@app.route("/preview")
-def preview_style_nodes():
-    """Preview Style Nodes: 캔버스·툴바 페이지."""
-    logger.info("GET /preview 요청 시작")
-    try:
-        initial_data = getattr(request, "initial_data", None)
-        html = render_template("preview.html", active_nav="preview", initial_data=initial_data)
-        logger.info("GET /preview 요청 완료")
-        return html
-    except Exception as e:
-        logger.exception("GET /preview 처리 실패: %s", e)
         raise
 
 

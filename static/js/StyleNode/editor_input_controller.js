@@ -1,7 +1,6 @@
 // 키보드 입력만 담당 (Undo, Delete, Enter, 툴 단축키). 포인터/휠은 Renderer·ObjectManager가 직접 바인드
 
 import { EShapeKind } from "./const.js";
-import { Util } from "./util.js";
 import { TopMenu } from "./top_menu.js";
 
 class EditorInputController {
@@ -34,6 +33,26 @@ class EditorInputController {
         EditorInputController.#instance = this;
     }
 
+    /**
+     * 텍스트 입력·선택 UI에 포커스가 있으면 true. 이 경우 Delete/Backspace는 캔버스 삭제에 쓰지 않는다.
+     * @param {EventTarget | null} target
+     */
+    _isTypingInEditableField(target) {
+        if (target === null || target === undefined) return false;
+        const el = /** @type {HTMLElement} */ (target);
+        if (typeof el.isContentEditable === "boolean" && el.isContentEditable) return true;
+        const tag = el.tagName !== undefined ? String(el.tagName).toLowerCase() : "";
+        if (tag === "textarea") return true;
+        if (tag === "select") return true;
+        if (tag === "input") {
+            const inputEl = /** @type {HTMLInputElement} */ (el);
+            const type = (inputEl.type ?? "text").toLowerCase();
+            const nonTextTypes = ["button", "checkbox", "radio", "submit", "reset", "file", "hidden", "range", "color", "image"];
+            return !nonTextTypes.includes(type);
+        }
+        return false;
+    }
+
     bindObjectManager(objectManager) {
         this.objectManager = objectManager;
     }
@@ -59,6 +78,9 @@ class EditorInputController {
         }
 
         if (key === "delete" || key === "backspace") {
+            if (this._isTypingInEditableField(e.target)) {
+                return;
+            }
             if (om.getCurrentToolMode() === EShapeKind.Select) {
                 om.deleteSelected();
             }

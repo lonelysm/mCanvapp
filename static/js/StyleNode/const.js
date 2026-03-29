@@ -57,7 +57,7 @@ export const ToolbarGroupInfos = [
     {
         label: "채움 색",
         controls: [
-            { tag: "input", type: "color", id: "fillColor", className: "toolbar__control", value: "#2f6df633" },
+            { tag: "input", type: "color", id: "fillColor", className: "toolbar__control", value: "#2f6df6" },
         ],
     },
     {
@@ -79,6 +79,37 @@ export const ToolbarGroupInfos = [
         ],
     },
     {
+        wrapperTag: "div",
+        label: "서버",
+        role: "group",
+        ariaLabel: "문서 서버 저장·불러오기",
+        controls: [
+            {
+                tag: "button",
+                id: "styleNodeSaveBtn",
+                className: "btn",
+                type: "button",
+                title: "현재 편집 내용을 서버(JSON)에 저장",
+                textContent: "서버 저장",
+            },
+            {
+                tag: "button",
+                id: "styleNodeLoadBtn",
+                className: "btn",
+                type: "button",
+                title: "저장 ID로 서버에서 불러오기",
+                textContent: "불러오기",
+            },
+            {
+                tag: "output",
+                id: "styleNodeDocIdOut",
+                className: "toolbar__output toolbar__output--docId",
+                title: "마지막으로 서버에 저장된 문서 ID",
+                value: "",
+            },
+        ],
+    },
+    {
         controls: [
             { tag: "button", id: "undoBtn", className: "btn", type: "button", title: "되돌리기 (Ctrl+Z)", textContent: "되돌리기" },
         ],
@@ -86,6 +117,14 @@ export const ToolbarGroupInfos = [
     {
         controls: [
             { tag: "button", id: "clearBtn", className: "btn btn--danger", type: "button", title: "전체 삭제", textContent: "전체 삭제" },
+            {
+                tag: "button",
+                id: "helpInfoBtn",
+                className: "btn btn--ghost",
+                type: "button",
+                title: "사용법·단축키",
+                textContent: "i",
+            },
         ],
     },
 ];

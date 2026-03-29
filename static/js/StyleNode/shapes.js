@@ -2,7 +2,7 @@
 // BaseShape는 모양들의 공통적인 속성들이 있으며 멤버 함수는 대부분 상속 클래스에서 구현한다
 
 import { EShapeKind } from "./const.js";
-import { Util } from "./util.js";
+import { Util } from "../util.js";
 
 class BaseShape {
     constructor(options) {
@@ -14,6 +14,20 @@ class BaseShape {
 
     get displayName() {
         return this._displayName ?? "도형";
+    }
+
+    /** 아웃라이너·디테일 패널에서 표시 이름을 바꿀 때 사용한다. */
+    setDisplayName(name) {
+        if (typeof name !== "string") {
+            console.warn("[BaseShape.setDisplayName] 문자열이 아님");
+            return;
+        }
+        const trimmed = name.trim();
+        if (trimmed === "") {
+            console.warn("[BaseShape.setDisplayName] 빈 문자열");
+            return;
+        }
+        this._displayName = trimmed;
     }
 
     getPosition() {
@@ -367,13 +381,14 @@ class RectShape extends BaseShape {
 class PolygonShape extends BaseShape {
     constructor(options) {
         options.id ??= Util.uid("poly");
-        super({ ...options, kind: EShapeKind.POLYGON, displayName: "다각형" });
+        const isClosed = options.isClosed ?? false;
+        super({
+            ...options,
+            kind: EShapeKind.POLYGON,
+            displayName: options.displayName ?? (isClosed ? "다각형" : "다각형(작성중)"),
+        });
         this.points = options.points ? options.points.map((p) => ({ ...p })) : [];
-        this.isClosed = options.isClosed ?? false;
-    }
-
-    get displayName() {
-        return this.isClosed ? "다각형" : "다각형(작성중)";
+        this.isClosed = isClosed;
     }
 
     getPosition() {

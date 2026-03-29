@@ -1,11 +1,52 @@
-// 도형 목록(displayShapes), 작업 이력, 툴/선택/draft 상태 관리
-// 캔버스 포인터 이벤트로 선택·드래그·도형 추가·draft 처리 (팬/줌은 Renderer에서 처리)
+// 도형 문서 트리(그룹·리프), 작업 이력, 툴/선택/draft
+// 리프 기하는 부모 그룹 로컬 좌표, 월드 = 부모 체인 translate 합 + 로컬
 
 import { EShapeKind } from "./const.js";
-import { Util } from "./util.js";
+import { Util } from "../util.js";
 import { PointShape, LineShape, CircleShape, RectShape, PolygonShape, FreehandShape } from "./shapes.js";
+import {
+    NodeType,
+    cloneDocumentRoot,
+    createDocumentRoot,
+    createGroupNode,
+    createLeafNode,
+    ensureDocumentRootTree,
+    findNodeWithParent,
+    flattenShapesInPaintOrder,
+    getGroupContentWorldOrigin,
+    pickNodeAtWorld,
+    recalculateGroupOriginOptionB,
+} from "./style_node_tree.js";
+import { wrapFlatShapesInSessionRoot } from "./shape_tree_snapshot.js";
 
 const TASK_HISTORY_MAX = 50;
+
+/**
+ * 툴바 채움 색(#rrggbb 또는 #rrggbbaa)을 캔버스 fillStyle용 rgba 문자열로 바꾼다.
+ * @param {string} hex
+ * @returns {string}
+ */
+function toolbarFillHexToRgba(hex) {
+    const raw = String(hex ?? "#000000").trim();
+    const normalized = raw.startsWith("#") ? raw.slice(1) : raw;
+    if (!/^[0-9a-f]+$/i.test(normalized)) {
+        return "rgba(47,109,246,0.2)";
+    }
+    if (normalized.length === 6) {
+        const r = parseInt(normalized.slice(0, 2), 16);
+        const g = parseInt(normalized.slice(2, 4), 16);
+        const b = parseInt(normalized.slice(4, 6), 16);
+        return `rgba(${r},${g},${b},0.2)`;
+    }
+    if (normalized.length === 8) {
+        const r = parseInt(normalized.slice(0, 2), 16);
+        const g = parseInt(normalized.slice(2, 4), 16);
+        const b = parseInt(normalized.slice(4, 6), 16);
+        const a = parseInt(normalized.slice(6, 8), 16) / 255;
+        return `rgba(${r},${g},${b},${a})`;
+    }
+    return "rgba(47,109,246,0.2)";
+}
 
 class ObjectManagerClass {
     static #instance = null;
@@ -22,11 +63,16 @@ class ObjectManagerClass {
             return ObjectManagerClass.#instance;
         }
 
-        this.shapes = [];
+        this.documentRoot = createDocumentRoot();
+        /** @type {"leaf" | "group" | null} */
+        this.selectedKind = null;
         this.taskHistories = [];
 
         this.currentToolMode = EShapeKind.Select;
         this.selectedId = null;
+        /** 새 도형이 들어갈 그룹 id (선택 없음: 문서 루트 → 작업 세션과 형제) */
+        this.insertTargetGroupId = this.documentRoot.id;
+
         this.draftShape = null;
         this.draftPolygon = null;
         this.dragShapesSnapshot = null;
@@ -48,7 +94,11 @@ class ObjectManagerClass {
         ObjectManagerClass.#instance = this;
     }
 
-    /** 포인터 이벤트 바인드. ObjectManager를 먼저 등록해 도형 히트 시 처리·stopImmediatePropagation */
+    /** 하위 호환: 평면 도형 배열처럼 쓰이는 리프 shape 목록 */
+    get shapes() {
+        return flattenShapesInPaintOrder(this.documentRoot);
+    }
+
     bindPointerEvents(canvas, renderer) {
         this._canvas = canvas;
         this._renderer = renderer;
@@ -79,12 +129,13 @@ class ObjectManagerClass {
         return this.currentToolMode;
     }
 
-    /** 렌더러에 넘길 상태 (displayShapes + 툴/선택/draft + 포인터 위치) */
     getRenderState() {
         return {
-            displayShapes: this.shapes,
+            documentRoot: this.documentRoot,
+            displayShapes: flattenShapesInPaintOrder(this.documentRoot),
             currentToolMode: this.currentToolMode,
             selectedId: this.selectedId,
+            selectedKind: this.selectedKind,
             draftShape: this.draftShape,
             draftPolygon: this.draftPolygon,
             pointerPos: this._lastPointerWorld ?? null,
@@ -92,37 +143,79 @@ class ObjectManagerClass {
     }
 
     getShapes() {
-        return this.shapes;
+        return flattenShapesInPaintOrder(this.documentRoot);
     }
 
+    /** 문서 루트(세션) */
+    getDocumentRoot() {
+        return this.documentRoot;
+    }
+
+    /**
+     * 평면 도형 배열로 덮어쓴다(v1 마이그레이션 등). 세션 루트 아래 리프로 감싼다.
+     * @param {import("./shapes.js").BaseShape[]} newShapes
+     */
     setShapes(newShapes) {
-        this.shapes = Array.isArray(newShapes) ? newShapes : [];
+        this.documentRoot = wrapFlatShapesInSessionRoot(Array.isArray(newShapes) ? newShapes : []);
+        this.insertTargetGroupId = this.documentRoot.id;
     }
 
+    /**
+     * 월드 좌표 기준으로 만든 도형을 insertTargetGroupId 그룹에 로컬로 넣는다.
+     * @param {import("./shapes.js").BaseShape} shape
+     */
     addShape(shape) {
-        if (shape != null) {
-            this.shapes.push(shape);
+        if (shape == null) return;
+        const gid = this.insertTargetGroupId ?? this.documentRoot.id;
+        const o = getGroupContentWorldOrigin(this.documentRoot, gid, 0, 0);
+        if (o === null) {
+            console.warn("[object_manager] addShape: 그룹 원점을 찾지 못함 id=%s", gid);
+            return;
         }
+        const localShape = shape.translate(-o.x, -o.y);
+        const leaf = createLeafNode({ shape: localShape });
+        if (leaf === null) return;
+        const loc = findNodeWithParent(this.documentRoot, gid);
+        if (loc === null || loc.node.nodeType !== NodeType.GROUP) {
+            console.warn("[object_manager] addShape: 대상 그룹 없음");
+            return;
+        }
+        loc.node.children.push(leaf);
+    }
+
+    /** 선택된 그룹(또는 루트) 아래에 빈 자식 그룹을 추가한다. */
+    addEmptyChildGroup() {
+        this.pushTaskHistory();
+        const gid = this.insertTargetGroupId ?? this.documentRoot.id;
+        const loc = findNodeWithParent(this.documentRoot, gid);
+        if (loc === null || loc.node.nodeType !== NodeType.GROUP) {
+            console.warn("[object_manager] addEmptyChildGroup: 대상 그룹 없음");
+            return;
+        }
+        const g = createGroupNode({ name: "Group" });
+        loc.node.children.push(g);
+        this.selectedId = g.id;
+        this.selectedKind = "group";
+        this.insertTargetGroupId = g.id;
+        this._renderer?.requestRender?.();
     }
 
     findIndexById(id) {
-        return this.shapes.findIndex((s) => s.id === id);
+        const list = this.getShapes();
+        return list.findIndex((s) => s.id === id);
     }
 
     replaceShapeAtIndex(index, shape) {
-        if (index >= 0 && index < this.shapes.length && shape != null) {
-            this.shapes[index] = shape;
-        }
-    }
-
-    removeShapeAtIndex(index) {
-        if (index >= 0 && index < this.shapes.length) {
-            this.shapes.splice(index, 1);
-        }
+        const list = this.getShapes();
+        if (index < 0 || index >= list.length || shape == null) return;
+        const oldId = list[index].id;
+        const loc = findNodeWithParent(this.documentRoot, oldId);
+        if (loc === null || loc.node.nodeType !== NodeType.LEAF) return;
+        loc.node.shape = shape;
     }
 
     pushTaskHistory(snapshot) {
-        const toPush = snapshot ?? this.shapes.map((s) => s.clone());
+        const toPush = snapshot ?? cloneDocumentRoot(this.documentRoot);
         this.taskHistories.push(toPush);
         if (this.taskHistories.length > TASK_HISTORY_MAX) {
             this.taskHistories.shift();
@@ -132,35 +225,56 @@ class ObjectManagerClass {
     restoreFromHistory() {
         const prev = this.taskHistories.pop();
         if (prev == null) return false;
-        this.setShapes(prev);
-        return true;
+        if (prev.nodeType !== undefined) {
+            this.documentRoot = ensureDocumentRootTree(prev);
+            return true;
+        }
+        if (Array.isArray(prev)) {
+            const clones = prev.map((s) => (s.clone ? s.clone() : s));
+            this.documentRoot = wrapFlatShapesInSessionRoot(clones);
+            return true;
+        }
+        return false;
     }
 
     clear() {
         this.pushTaskHistory();
-        this.setShapes([]);
+        this.documentRoot = createDocumentRoot();
+        this.insertTargetGroupId = this.documentRoot.id;
     }
 
+    /**
+     * 팬 차단용: 무언가 맞으면 참. 리프면 shape, 그룹이면 표식 객체.
+     * @param {{ x: number, y: number }} pointerPoint
+     */
     pickShape(pointerPoint) {
-        for (let i = this.shapes.length - 1; i >= 0; i--) {
-            const shape = this.shapes[i];
-            const tolerance = Math.max(6, (shape.style?.lineWidth ?? 3) + 6);
-            if (shape.hitTest(pointerPoint, tolerance)) return shape;
-        }
-        return null;
+        const hit = this.pickAtWorld(pointerPoint);
+        if (hit === null) return null;
+        if (hit.kind === "leaf") return hit.node.shape;
+        return { isGroupPick: true };
+    }
+
+    /**
+     * @returns {{ kind: "leaf" | "group", node: object } | null}
+     */
+    pickAtWorld(pointerPoint) {
+        return pickNodeAtWorld(pointerPoint.x, pointerPoint.y, this.documentRoot, 0, 0, this.documentRoot);
     }
 
     undo() {
         if (!this.restoreFromHistory()) return;
         this.selectedId = null;
+        this.selectedKind = null;
         this.draftShape = null;
         this.draftPolygon = null;
+        this.insertTargetGroupId = this.documentRoot.id;
         this._renderer?.requestRender?.();
     }
 
     clearAll() {
         this.clear();
         this.selectedId = null;
+        this.selectedKind = null;
         this.draftShape = null;
         this.draftPolygon = null;
         this._renderer?.requestRender?.();
@@ -189,6 +303,11 @@ class ObjectManagerClass {
             this.pushTaskHistory();
             this.addShape(draft);
             this.selectedId = draft.id;
+            this.selectedKind = "leaf";
+            const fp = findNodeWithParent(this.documentRoot, draft.id);
+            if (fp && fp.parent) {
+                this.insertTargetGroupId = fp.parent.id;
+            }
             this.draftShape = null;
             this._renderer?.requestRender?.();
         }
@@ -196,11 +315,28 @@ class ObjectManagerClass {
 
     deleteSelected() {
         if (this.selectedId === null) return;
-        const idx = this.findIndexById(this.selectedId);
-        if (idx < 0) return;
+        const id = this.selectedId;
+        const found = findNodeWithParent(this.documentRoot, id);
+        if (found === null || found.parent === null) return;
+
         this.pushTaskHistory();
-        this.removeShapeAtIndex(idx);
+        found.parent.children.splice(found.index, 1);
+
+        const parent = found.parent;
+        const fp = findNodeWithParent(this.documentRoot, parent.id);
+        const grand = fp && fp.parent !== null ? fp.parent : null;
+        if (grand === null) {
+            recalculateGroupOriginOptionB(parent, 0, 0);
+        } else {
+            const o = getGroupContentWorldOrigin(this.documentRoot, grand.id, 0, 0);
+            if (o !== null) {
+                recalculateGroupOriginOptionB(parent, o.x, o.y);
+            }
+        }
+
         this.selectedId = null;
+        this.selectedKind = null;
+        this.insertTargetGroupId = this.documentRoot.id;
         this._renderer?.requestRender?.();
     }
 
@@ -217,6 +353,11 @@ class ObjectManagerClass {
             });
             this.addShape(final);
             this.selectedId = final.id;
+            this.selectedKind = "leaf";
+            const fp = findNodeWithParent(this.documentRoot, final.id);
+            if (fp && fp.parent) {
+                this.insertTargetGroupId = fp.parent.id;
+            }
         }
         this.draftPolygon = null;
         this._renderer?.requestRender?.();
@@ -227,6 +368,7 @@ class ObjectManagerClass {
         if (!currentStyle) return;
 
         if (this.currentToolMode === EShapeKind.Point) {
+            this.pushTaskHistory();
             this.addShape(
                 new PointShape({
                     position: pointerDownPoint,
@@ -234,6 +376,12 @@ class ObjectManagerClass {
                     style: currentStyle,
                 })
             );
+            const shapes = this.getShapes();
+            const last = shapes[shapes.length - 1];
+            if (last) {
+                this.selectedId = last.id;
+                this.selectedKind = "leaf";
+            }
             this._renderer?.requestRender?.();
             return;
         }
@@ -270,21 +418,21 @@ class ObjectManagerClass {
                 style: currentStyle,
             });
         }
-        if (this.currentToolMode === EShapeKind.CIRCLE) {
+        if (this.currentToolMode === EShapeKind.Circle) {
             return new CircleShape({
                 center: pointerPoint,
                 radius: 0,
                 style: currentStyle,
             });
         }
-        if (this.currentToolMode === EShapeKind.RECT) {
+        if (this.currentToolMode === EShapeKind.Rect) {
             return new RectShape({
                 start: pointerPoint,
                 end: pointerPoint,
                 style: currentStyle,
             });
         }
-        if (this.currentToolMode === EShapeKind.FREEHAND) {
+        if (this.currentToolMode === EShapeKind.Freehand) {
             return new FreehandShape({
                 points: [pointerPoint],
                 style: currentStyle,
@@ -301,15 +449,35 @@ class ObjectManagerClass {
         this._dragStart = worldPoint;
 
         if (this.currentToolMode === EShapeKind.Select) {
-            const hit = this.pickShape(worldPoint);
-            this.selectedId = hit ? hit.id : null;
+            const hit = this.pickAtWorld(worldPoint);
+            if (hit === null) {
+                this.selectedId = null;
+                this.selectedKind = null;
+                this.insertTargetGroupId = this.documentRoot.id;
+            } else {
+                this.selectedId = hit.node.id;
+                this.selectedKind = hit.kind;
+                if (hit.kind === "group") {
+                    this.insertTargetGroupId = hit.node.id;
+                } else {
+                    const fp = findNodeWithParent(this.documentRoot, hit.node.id);
+                    this.insertTargetGroupId = fp && fp.parent ? fp.parent.id : this.documentRoot.id;
+                }
+            }
+
             this.dragCopiedOriginal = new Map();
-            this.dragShapesSnapshot = this.selectedId ? this.shapes.map((s) => s.clone()) : null;
+            this.dragShapesSnapshot = this.selectedId ? cloneDocumentRoot(this.documentRoot) : null;
 
             if (this.selectedId !== null) {
-                const selected = this.shapes.find((s) => s.id === this.selectedId) ?? null;
-                if (selected) {
-                    this.dragCopiedOriginal.set(selected.id, selected.clone());
+                if (this.selectedKind === "leaf") {
+                    const sh = hit.node.shape;
+                    this.dragCopiedOriginal.set(this.selectedId, sh.clone());
+                } else if (this.selectedKind === "group") {
+                    const g = hit.node;
+                    this.dragCopiedOriginal.set(this.selectedId, {
+                        tx: g.transform.x,
+                        ty: g.transform.y,
+                    });
                 }
                 this._renderer?.endPan();
                 this._isDraggingOrDrafting = true;
@@ -337,13 +505,24 @@ class ObjectManagerClass {
         if (this._isDraggingOrDrafting) {
             e.stopImmediatePropagation();
             if (this.currentToolMode === EShapeKind.Select && this.selectedId !== null) {
-                const original = this.dragCopiedOriginal?.get(this.selectedId) ?? null;
-                if (original) {
-                    const deltaX = worldPoint.x - this._dragStart.x;
-                    const deltaY = worldPoint.y - this._dragStart.y;
-                    const moved = original.translate(deltaX, deltaY);
-                    const idx = this.shapes.findIndex((s) => s.id === this.selectedId);
-                    if (idx >= 0) this.replaceShapeAtIndex(idx, moved);
+                const deltaX = worldPoint.x - this._dragStart.x;
+                const deltaY = worldPoint.y - this._dragStart.y;
+                if (this.selectedKind === "leaf") {
+                    const original = this.dragCopiedOriginal?.get(this.selectedId) ?? null;
+                    if (original) {
+                        const moved = original.translate(deltaX, deltaY);
+                        const loc = findNodeWithParent(this.documentRoot, this.selectedId);
+                        if (loc && loc.node.nodeType === NodeType.LEAF) {
+                            loc.node.shape = moved;
+                        }
+                    }
+                } else if (this.selectedKind === "group") {
+                    const orig = this.dragCopiedOriginal?.get(this.selectedId);
+                    const loc = findNodeWithParent(this.documentRoot, this.selectedId);
+                    if (orig && loc && loc.node.nodeType === NodeType.GROUP) {
+                        loc.node.transform.x = orig.tx + deltaX;
+                        loc.node.transform.y = orig.ty + deltaY;
+                    }
                 }
             } else if (this.draftShape !== null) {
                 this.draftShape.updateDraftShape(worldPoint);
@@ -364,9 +543,9 @@ class ObjectManagerClass {
 
             if (this.currentToolMode === EShapeKind.Select) {
                 if (this.selectedId !== null && this.dragShapesSnapshot !== null) {
-                    const now = this.shapes.find((s) => s.id === this.selectedId) ?? null;
-                    const original = this.dragCopiedOriginal?.get(this.selectedId) ?? null;
-                    if (now && original && JSON.stringify(now) !== JSON.stringify(original)) {
+                    const now = cloneDocumentRoot(this.documentRoot);
+                    const snap = this.dragShapesSnapshot;
+                    if (now && snap && JSON.stringify(now) !== JSON.stringify(snap)) {
                         this.pushTaskHistory(this.dragShapesSnapshot);
                     }
                 }
@@ -396,6 +575,20 @@ class ObjectManagerClass {
         }
     }
 
+    /** 툴바 색·두께 변경 시 드래프트 도형 스타일을 DOM과 맞춘다. */
+    syncDraftStyleFromToolbar() {
+        const style = this._getCurrentShapeStyleFromDom();
+        if (style === null || style === undefined) {
+            return;
+        }
+        if (this.draftShape !== null) {
+            this.draftShape.style = { ...style };
+        }
+        if (this.draftPolygon !== null) {
+            this.draftPolygon.style = { ...style };
+        }
+    }
+
     _getCurrentShapeStyleFromDom() {
         const strokeColorEl = document.getElementById("strokeColor");
         const fillEnabledEl = document.getElementById("fillEnabled");
@@ -407,16 +600,17 @@ class ObjectManagerClass {
         fillColorEl ?? console.error("[ui] fillColor 엘리먼트를 찾지 못했습니다.");
         lineWidthEl ?? console.error("[ui] lineWidth 엘리먼트를 찾지 못했습니다.");
 
-        const strokeColor = strokeColorEl?.value ?? "#2f6df6";
-        const fillEnabledValue = fillEnabledEl?.checked ?? true;
-        const fillColor = fillColorEl?.value ?? "#2f6df633";
+        const stroke = strokeColorEl?.value ?? "#2f6df6";
+        const fillEnabled = fillEnabledEl?.checked ?? true;
+        const fillHex = fillColorEl?.value ?? "#2f6df6";
         const lineWidthValue = Number(lineWidthEl?.value ?? 3);
+        const fill = toolbarFillHexToRgba(fillHex);
 
         return {
-            strokeColor,
+            stroke,
+            fill,
             lineWidth: Util.clamp(lineWidthValue, 1, 50),
-            fillEnabled: fillEnabledValue,
-            fillColor,
+            fillEnabled,
         };
     }
 }
