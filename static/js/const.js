@@ -34,7 +34,7 @@ const ShapeMenuList = [
     { value: EShapeKind.Freehand, display: "자유곡선", shortcut: "F" },
 ];
 
-// 툴바 그룹 정의 (index.html 툴바 구조를 객체화). Util.createElement + for문으로 동적 생성.
+// 툴바 그룹 정의 (preview.html 툴바 구조를 객체화). Util.createElement + for문으로 동적 생성.
 export const ToolbarGroupInfos = [
     {
         label: "도구",

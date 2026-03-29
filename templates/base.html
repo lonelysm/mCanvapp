@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{% block title %}mCanvapp{% endblock %}</title>
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+        {% block extra_head %}{% endblock %}
+    </head>
+    <body>
+        <div class="appShell">
+            <nav class="sidebar" aria-label="주 메뉴">
+                <div class="sidebar__brand">mCanvapp</div>
+                <ul class="sidebar__nav">
+                    <li class="sidebar__item">
+                        <a
+                            class="sidebar__link"
+                            href="{{ url_for('home') }}"
+                            {% if active_nav == 'home' %}aria-current="page"{% endif %}
+                            >Home</a
+                        >
+                    </li>
+                    <li class="sidebar__item">
+                        <a
+                            class="sidebar__link"
+                            href="{{ url_for('preview_style_nodes') }}"
+                            {% if active_nav == 'preview' %}aria-current="page"{% endif %}
+                            >Preview Style Nodes</a
+                        >
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="appShell__content">{% block content %}{% endblock %}</div>
+        </div>
+
+        {% block body_scripts %}{% endblock %}
+    </body>
+</html>

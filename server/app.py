@@ -17,17 +17,30 @@ app = Flask(
 
 
 @app.route("/")
-def index():
-    """메인 페이지: Jinja2로 초기 HTML·초기 데이터 주입 후 반환."""
+def home():
+    """Home 소개 페이지. 템플릿을 라우트별로 분리해 확장 시 유지보수한다."""
     logger.info("GET / 요청 시작")
     try:
-        # 초기 데이터는 추후 테이블/UML 뷰 확장 시 여기서 주입
         initial_data = getattr(request, "initial_data", None)
-        html = render_template("index.html", initial_data=initial_data)
+        html = render_template("home.html", active_nav="home", initial_data=initial_data)
         logger.info("GET / 요청 완료")
         return html
     except Exception as e:
         logger.exception("GET / 처리 실패: %s", e)
+        raise
+
+
+@app.route("/preview")
+def preview_style_nodes():
+    """Preview Style Nodes: 캔버스·툴바 페이지."""
+    logger.info("GET /preview 요청 시작")
+    try:
+        initial_data = getattr(request, "initial_data", None)
+        html = render_template("preview.html", active_nav="preview", initial_data=initial_data)
+        logger.info("GET /preview 요청 완료")
+        return html
+    except Exception as e:
+        logger.exception("GET /preview 처리 실패: %s", e)
         raise
 
 

@@ -1,14 +1,12 @@
-<!doctype html>
-<html lang="ko">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{% block title %}Canvas 도형 그리기 샘플{% endblock %}</title>
-        <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-    </head>
-    <body>
+{% extends "base.html" %}
+
+{% block title %}Preview Style Nodes · mCanvapp{% endblock %}
+
+{% block content %}
+    <div class="page page--preview">
+        <h2 class="visuallyHidden">Preview Style Nodes</h2>
         <header class="topbar">
-            <div class="topbar__title">Canvas Draw Sample</div>
+            <div class="topbar__title">Preview Style Nodes</div>
             <div id="toolbarContainer" class="toolbar" role="group" aria-label="도형 그리기 도구"></div>
         </header>
 
@@ -50,7 +48,9 @@
         <footer class="footer">
             <div class="footer__hint">캔버스는 리사이즈 시 DPR(고해상도) 스케일로 선명하게 렌더링됩니다.</div>
         </footer>
+    </div>
+{% endblock %}
 
-        <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
-    </body>
-</html>
+{% block body_scripts %}
+    <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}
