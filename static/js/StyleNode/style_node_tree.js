@@ -97,6 +97,30 @@ export function createLeafNode(options) {
  * id로 노드와 부모 그룹·인덱스를 찾는다.
  * @returns {{ node: object, parent: object | null, index: number } | null}
  */
+/**
+ * rootSubtree 트리 안에서 needleId가 rootSubtree 자식 이하(자기 자신은 제외)에 있으면 참. 그룹 드롭 금지 판별용.
+ * @param {object} rootSubtree
+ * @param {string} needleId
+ * @returns {boolean}
+ */
+export function isStrictDescendantId(rootSubtree, needleId) {
+    if (rootSubtree === null || rootSubtree === undefined || needleId === null || needleId === undefined) {
+        return false;
+    }
+    if (rootSubtree.nodeType !== NodeType.GROUP) {
+        return false;
+    }
+    for (const ch of rootSubtree.children) {
+        if (ch.id === needleId) {
+            return true;
+        }
+        if (isStrictDescendantId(ch, needleId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 export function findNodeWithParent(root, id) {
     if (root === null || root === undefined || id === null || id === undefined) {
         return null;

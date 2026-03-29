@@ -1,4 +1,4 @@
-// Preview 페이지 편집 상태를 sessionStorage에 두어, 다른 Flask 페이지로 갔다 와도 유지한다.
+// Create Style Node 페이지 편집 상태를 sessionStorage에 두어, 다른 Flask 페이지로 갔다 와도 유지한다.
 
 import { shapeFromPlain, shapeToPlain } from "./shape_snapshot.js";
 import { nodeFromPlain, nodeToPlain, wrapFlatShapesInSessionRoot } from "./shape_tree_snapshot.js";

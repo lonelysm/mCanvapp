@@ -16,7 +16,7 @@ import {
 import { HierarchyDetailUi } from "./hierarchy_detail_ui.js";
 import { loadStyleNodeDocumentFromServer, saveStyleNodeDocumentToServer } from "./style_node_server_io.js";
 
-/** 미리보기 사이드바 접이 패널(제목 클릭) 바인딩. 기본은 펼침(aria-expanded=true). */
+/** Create Style Node 페이지 사이드바 접이 패널(제목 클릭) 바인딩. 기본은 펼침(aria-expanded=true). */
 function bindPreviewSidePanelCollapsibles() {
     const side = document.querySelector(".side");
     if (side === null) {

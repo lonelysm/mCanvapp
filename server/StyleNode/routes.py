@@ -1,4 +1,4 @@
-# Preview Style Nodes 라우트·JSON 저장/로드 API
+# Create Style Node 페이지 라우트·JSON 저장/로드 API
 
 import json
 import logging
@@ -6,7 +6,7 @@ import os
 import re
 import uuid
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +20,31 @@ _SAFE_DOC_ID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-
 style_node_bp = Blueprint("style_node", __name__)
 
 
-@style_node_bp.route("/preview")
-def preview_style_nodes():
-    """Preview Style Nodes: 캔버스·툴바 페이지."""
-    logger.info("GET /preview 요청 시작")
+@style_node_bp.route("/create-style-node")
+def create_style_node():
+    """Create Style Node: 캔버스·툴바 페이지."""
+    logger.info("GET /create-style-node 요청 시작")
     try:
         initial_data = getattr(request, "initial_data", None)
-        html = render_template("preview.html", active_nav="preview", initial_data=initial_data)
-        logger.info("GET /preview 요청 완료")
+        html = render_template(
+            "preview.html",
+            active_nav="create_style_node",
+            initial_data=initial_data,
+        )
+        logger.info("GET /create-style-node 요청 완료")
         return html
     except Exception as e:
-        logger.exception("GET /preview 처리 실패: %s", e)
+        logger.exception("GET /create-style-node 처리 실패: %s", e)
         raise
+
+
+@style_node_bp.route("/preview")
+def preview_style_nodes_redirect():
+    """구 경로 /preview → /create-style-node (호환용 리다이렉트)."""
+    logger.info("GET /preview 리다이렉트 → /create-style-node 시작")
+    resp = redirect(url_for("style_node.create_style_node"), code=301)
+    logger.info("GET /preview 리다이렉트 → /create-style-node 완료")
+    return resp
 
 
 @style_node_bp.route("/api/style-node/save", methods=["POST"])

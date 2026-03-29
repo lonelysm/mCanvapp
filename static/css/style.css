@@ -554,6 +554,11 @@ canvas {
     outline: 1px solid rgba(47, 109, 246, 0.45);
 }
 
+.treeRow--dropHover {
+    background: rgba(50, 213, 131, 0.12);
+    outline: 1px dashed rgba(50, 213, 131, 0.55);
+}
+
 .treeRow__indent {
     width: 10px;
     flex: 0 0 auto;

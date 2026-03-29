@@ -13,7 +13,9 @@ import {
     ensureDocumentRootTree,
     findNodeWithParent,
     flattenShapesInPaintOrder,
+    getAccumulatedOffsetForLeaf,
     getGroupContentWorldOrigin,
+    isStrictDescendantId,
     pickNodeAtWorld,
     recalculateGroupOriginOptionB,
 } from "./style_node_tree.js";
@@ -338,6 +340,119 @@ class ObjectManagerClass {
         this.selectedKind = null;
         this.insertTargetGroupId = this.documentRoot.id;
         this._renderer?.requestRender?.();
+    }
+
+    /**
+     * 자식 목록이 바뀐 뒤 옵션 B로 그룹 원점·직접 자식 로컬을 부모 월드에 맞춘다.
+     * @param {object} groupNode GROUP 노드
+     */
+    _recalculateGroupOptionBAfterChildChange(groupNode) {
+        if (groupNode === null || groupNode === undefined || groupNode.nodeType !== NodeType.GROUP) {
+            return;
+        }
+        const fp = findNodeWithParent(this.documentRoot, groupNode.id);
+        const grand = fp && fp.parent !== null ? fp.parent : null;
+        if (grand === null) {
+            recalculateGroupOriginOptionB(groupNode, 0, 0);
+        } else {
+            const o = getGroupContentWorldOrigin(this.documentRoot, grand.id, 0, 0);
+            if (o !== null) {
+                recalculateGroupOriginOptionB(groupNode, o.x, o.y);
+            }
+        }
+    }
+
+    /**
+     * 계층 트리 DnD: 노드를 다른 그룹 아래로 옮긴다. 월드 기하는 유지하고 양쪽 부모에 옵션 B를 적용한다.
+     * @param {string} draggedNodeId 리프 또는 그룹 id
+     * @param {string} targetGroupId 드롭 대상 그룹 id
+     * @returns {boolean}
+     */
+    reparentNodeToGroup(draggedNodeId, targetGroupId) {
+        console.info("[object_manager] reparentNodeToGroup 시작 dragged=%s target=%s", draggedNodeId, targetGroupId);
+        if (draggedNodeId === null || draggedNodeId === undefined || targetGroupId === null || targetGroupId === undefined) {
+            console.warn("[object_manager] reparentNodeToGroup: id 없음");
+            return false;
+        }
+        if (draggedNodeId === targetGroupId) {
+            console.info("[object_manager] reparentNodeToGroup 종료: 자기 자신 — 무시");
+            return false;
+        }
+        const foundDrag = findNodeWithParent(this.documentRoot, draggedNodeId);
+        const foundTarget = findNodeWithParent(this.documentRoot, targetGroupId);
+        if (foundDrag === null || foundDrag.parent === null) {
+            console.warn("[object_manager] reparentNodeToGroup: 이동 노드 없음 또는 문서 루트");
+            return false;
+        }
+        if (foundTarget === null || foundTarget.node.nodeType !== NodeType.GROUP) {
+            console.warn("[object_manager] reparentNodeToGroup: 대상이 그룹이 아님");
+            return false;
+        }
+        const draggedNode = foundDrag.node;
+        const oldParent = foundDrag.parent;
+        const targetGroup = foundTarget.node;
+
+        if (draggedNode.nodeType === NodeType.GROUP && isStrictDescendantId(draggedNode, targetGroupId)) {
+            console.warn("[object_manager] reparentNodeToGroup: 자손 그룹으로는 이동 불가");
+            return false;
+        }
+
+        if (oldParent.id === targetGroup.id) {
+            console.info("[object_manager] reparentNodeToGroup 종료: 이미 같은 부모 — 무시");
+            return false;
+        }
+
+        /** 트리에서 빼기 전에 월드 기하를 구해야 한다 */
+        let worldLeafShape = null;
+        let worldGroupOrigin = null;
+        if (draggedNode.nodeType === NodeType.LEAF) {
+            const off = getAccumulatedOffsetForLeaf(this.documentRoot, draggedNodeId, 0, 0);
+            if (off === null) {
+                console.warn("[object_manager] reparentNodeToGroup: 리프 누적 오프셋 실패");
+                return false;
+            }
+            worldLeafShape = draggedNode.shape.translate(off.x, off.y);
+        } else if (draggedNode.nodeType === NodeType.GROUP) {
+            const wo = getGroupContentWorldOrigin(this.documentRoot, draggedNodeId, 0, 0);
+            if (wo === null) {
+                console.warn("[object_manager] reparentNodeToGroup: 그룹 월드 원점 실패");
+                return false;
+            }
+            worldGroupOrigin = { x: wo.x, y: wo.y };
+        } else {
+            return false;
+        }
+
+        this.pushTaskHistory();
+
+        oldParent.children.splice(foundDrag.index, 1);
+        this._recalculateGroupOptionBAfterChildChange(oldParent);
+
+        /** 이전 부모에서 옵션 B 재계산 후, 대상 그룹의 월드 콘텐츠 원점으로 로컬을 맞춘다 */
+        const oNew = getGroupContentWorldOrigin(this.documentRoot, targetGroupId, 0, 0);
+        if (oNew === null) {
+            console.warn("[object_manager] reparentNodeToGroup: 새 부모 콘텐츠 원점 실패 — undo로 복구");
+            this.restoreFromHistory();
+            return false;
+        }
+
+        if (draggedNode.nodeType === NodeType.LEAF) {
+            draggedNode.shape = worldLeafShape.translate(-oNew.x, -oNew.y);
+        } else {
+            draggedNode.transform.x = worldGroupOrigin.x - oNew.x;
+            draggedNode.transform.y = worldGroupOrigin.y - oNew.y;
+        }
+
+        targetGroup.children.push(draggedNode);
+        this._recalculateGroupOptionBAfterChildChange(targetGroup);
+
+        this.selectedId = draggedNodeId;
+        this.selectedKind = draggedNode.nodeType === NodeType.LEAF ? "leaf" : "group";
+        this.insertTargetGroupId = targetGroup.id;
+
+        this._renderer?.requestRender?.();
+        console.info("[object_manager] reparentNodeToGroup 종료 성공");
+        return true;
     }
 
     finalizePolygon() {

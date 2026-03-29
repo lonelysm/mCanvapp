@@ -130,12 +130,95 @@ export class HierarchyDetailUi {
         this.detailStyleLineWidth = document.getElementById("detailStyleLineWidth");
         this.addGroupBtn = document.getElementById("addEmptyGroupBtn");
         this._detailBound = false;
+        this._hierarchyDragBound = false;
         if (this.addGroupBtn !== null) {
             this.addGroupBtn.addEventListener("click", () => {
                 this.objectManager.addEmptyChildGroup();
                 this.renderer.requestRender();
             });
         }
+        this._bindHierarchyDragDrop();
+    }
+
+    /** 계층 트리 행 드래그로 그룹 노드에 드롭 시 자식으로 재부모화 */
+    _bindHierarchyDragDrop() {
+        const rootEl = this.hierarchyEl;
+        if (rootEl === null || this._hierarchyDragBound) {
+            return;
+        }
+        this._hierarchyDragBound = true;
+
+        const clearDropHover = () => {
+            rootEl.querySelectorAll(".treeRow--dropHover").forEach((r) => r.classList.remove("treeRow--dropHover"));
+        };
+
+        rootEl.addEventListener("dragstart", (e) => {
+            const row = e.target.closest?.(".treeRow[data-drag-node-id]");
+            if (row === null || row === undefined) {
+                return;
+            }
+            const id = row.dataset.dragNodeId;
+            const kind = row.dataset.dragKind ?? "leaf";
+            console.info("[hierarchy_detail_ui] 트리 드래그 시작 id=%s kind=%s", id, kind);
+            e.dataTransfer.setData("text/plain", JSON.stringify({ nodeId: id, kind }));
+            e.dataTransfer.effectAllowed = "move";
+        });
+
+        rootEl.addEventListener("dragend", () => {
+            clearDropHover();
+            console.info("[hierarchy_detail_ui] 트리 드래그 종료");
+        });
+
+        rootEl.addEventListener("dragover", (e) => {
+            const row = e.target.closest?.(".treeRow[data-drop-group-id]");
+            if (row === null || row === undefined) {
+                return;
+            }
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            clearDropHover();
+            row.classList.add("treeRow--dropHover");
+        });
+
+        rootEl.addEventListener("dragleave", (e) => {
+            const row = e.target.closest?.(".treeRow[data-drop-group-id]");
+            if (row === null || row === undefined) {
+                return;
+            }
+            const rel = e.relatedTarget;
+            if (rel !== null && row.contains(rel)) {
+                return;
+            }
+            row.classList.remove("treeRow--dropHover");
+        });
+
+        rootEl.addEventListener("drop", (e) => {
+            const row = e.target.closest?.(".treeRow[data-drop-group-id]");
+            if (row === null || row === undefined) {
+                return;
+            }
+            e.preventDefault();
+            clearDropHover();
+            let payload = null;
+            try {
+                const raw = e.dataTransfer.getData("text/plain");
+                payload = JSON.parse(raw);
+            } catch (err) {
+                console.warn("[hierarchy_detail_ui] 드롭 payload 파싱 실패", err);
+                return;
+            }
+            const nodeId = payload?.nodeId;
+            const targetGroupId = row.dataset.dropGroupId;
+            if (typeof nodeId !== "string" || typeof targetGroupId !== "string") {
+                return;
+            }
+            console.info("[hierarchy_detail_ui] 트리 드롭 node=%s → group=%s", nodeId, targetGroupId);
+            const ok = this.objectManager.reparentNodeToGroup(nodeId, targetGroupId);
+            if (ok) {
+                this.renderer.requestRender();
+                window.dispatchEvent(new CustomEvent("styleNode:detailUpdated"));
+            }
+        });
     }
 
     /** 디테일 패널 입력·색상 컨트롤에 포커스가 있으면 참 */
@@ -432,6 +515,15 @@ export class HierarchyDetailUi {
             row.dataset.shapeId = node.id;
             row.setAttribute("role", "treeitem");
             row.setAttribute("tabindex", "0");
+            {
+                const fpLeaf = findNodeWithParent(this.objectManager.documentRoot, node.id);
+                const canDragLeaf = fpLeaf !== null && fpLeaf.parent !== null;
+                row.draggable = canDragLeaf;
+                if (canDragLeaf) {
+                    row.dataset.dragNodeId = node.id;
+                    row.dataset.dragKind = "leaf";
+                }
+            }
             if (this.objectManager.selectedId === node.id && this.objectManager.selectedKind === "leaf") {
                 row.classList.add("treeRow--selected");
             }
@@ -461,6 +553,16 @@ export class HierarchyDetailUi {
             row.dataset.groupId = node.id;
             row.setAttribute("role", "treeitem");
             row.setAttribute("tabindex", "0");
+            row.dataset.dropGroupId = node.id;
+            {
+                const fpGrp = findNodeWithParent(this.objectManager.documentRoot, node.id);
+                const canDragGrp = fpGrp !== null && fpGrp.parent !== null;
+                row.draggable = canDragGrp;
+                if (canDragGrp) {
+                    row.dataset.dragNodeId = node.id;
+                    row.dataset.dragKind = "group";
+                }
+            }
             if (this.objectManager.selectedId === node.id && this.objectManager.selectedKind === "group") {
                 row.classList.add("treeRow--selected");
             }

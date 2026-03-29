@@ -1,6 +1,6 @@
 # StyleNode (서버)
 
-Preview **Style Nodes** 페이지(`/preview`)와 문서 **저장·로드 API**를 이 패키지에서 관리한다.
+**Create Style Node** 페이지(`/create-style-node`, 구 `/preview`는 301 리다이렉트)와 문서 **저장·로드 API**를 이 패키지에서 관리한다.
 
 ## 경로
 
@@ -14,7 +14,7 @@ Preview **Style Nodes** 페이지(`/preview`)와 문서 **저장·로드 API**�
 - `POST /api/style-node/save` — 요청 body: JSON 객체 → 새 UUID 파일로 저장, 응답 `{ "id": "<uuid>" }`
 - `GET /api/style-node/load/<doc_id>` — 해당 id의 JSON 반환 (없으면 404)
 
-프론트에서는 Preview 페이지 상단 툴바 **서버** 그룹의 **서버 저장** / **불러오기** 버튼으로 호출한다. 파일은 `data/StyleNode/{uuid}.json` 에 저장된다.
+프론트에서는 Create Style Node 페이지 상단 툴바 **서버** 그룹의 **서버 저장** / **불러오기** 버튼으로 호출한다. 파일은 `data/StyleNode/{uuid}.json` 에 저장된다.
 
 I/O는 시작·종료·실패 시 로그를 남긴다.
 
