@@ -15,6 +15,7 @@
 | 키보드 | `editor_input_controller.js` |
 | sessionStorage 스냅샷 | `preview_session_store.js` |
 | 도형 ↔ JSON | `shape_snapshot.js` |
+| 라벨 위젯 | `label_widget.js` |
 | 바운딩 박스 | `shape_bounds.js` |
 | 계층 트리·디테일 패널 | `hierarchy_detail_ui.js` |
 | 그룹/리프 문서 트리 | `style_node_tree.js` |

@@ -7,7 +7,7 @@ import { EShapeKind } from "./const.js";
 import { Util } from "../util.js";
 import { TopMenu } from "./top_menu.js";
 import { ObjectManagerClass } from "./object_manager.js";
-import { NodeType, getAccumulatedOffsetForLeaf, getGroupWorldBounds } from "./style_node_tree.js";
+import { NodeType, findNodeWithParent, getAccumulatedOffsetForNode, getAccumulatedOffsetForLeaf, getGroupWorldBounds } from "./style_node_tree.js";
 
 class CanvasRenderer {
     static #instance = null;
@@ -270,6 +270,14 @@ class CanvasRenderer {
                     const worldShape = off !== null ? selectedShape.translate(off.x, off.y) : selectedShape;
                     this._drawSelectionOutline(worldShape);
                 }
+            } else if (selKind === "widget") {
+                const fp = findNodeWithParent(documentRoot, selId);
+                if (fp !== null && fp.node.nodeType === NodeType.WIDGET) {
+                    const off = getAccumulatedOffsetForNode(documentRoot, selId, 0, 0);
+                    const w = fp.node.widget;
+                    const worldW = off !== null ? w.translate(off.x, off.y) : w;
+                    worldW.drawSelectionOutline(this.screenCtx);
+                }
             } else if (selKind === "group") {
                 this._drawSelectedGroupOutline(documentRoot, selId, 0, 0);
             }
@@ -288,6 +296,10 @@ class CanvasRenderer {
         if (node === null || node === undefined) return;
         if (node.nodeType === NodeType.LEAF) {
             this._drawShape(node.shape);
+            return;
+        }
+        if (node.nodeType === NodeType.WIDGET) {
+            node.widget.drawShape(this.screenCtx);
             return;
         }
         if (node.nodeType !== NodeType.GROUP) return;
@@ -368,7 +380,9 @@ class CanvasRenderer {
 
         const pointerPosition = inEditorState.pointerPos ?? null;
         const posText = pointerPosition ? `${Math.round(pointerPosition.x)}, ${Math.round(pointerPosition.y)}` : "-";
-        const countText = `${inEditorState.displayShapes.length}개`;
+        const shapeCount = inEditorState.displayShapes?.length ?? 0;
+        const widgetCount = inEditorState.displayWidgets?.length ?? 0;
+        const countText = `${shapeCount}도형·${widgetCount}위젯`;
         const selText = inEditorState.selectedId ? "선택됨" : "없음";
         const polyText = inEditorState.draftPolygon ? `다각형 점 ${inEditorState.draftPolygon.points.length}개` : "";
         const viewScale = Number(this.viewScale) || 1;

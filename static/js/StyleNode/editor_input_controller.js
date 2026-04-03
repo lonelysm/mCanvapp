@@ -92,6 +92,11 @@ class EditorInputController {
             return;
         }
 
+        if (key === "t") {
+            TopMenu.getInstance().setTool(EShapeKind.Label);
+            return;
+        }
+
         const toolValue = this.shortcutToToolValue.get(key) ?? null;
         if (toolValue !== null) {
             TopMenu.getInstance().setTool(toolValue);

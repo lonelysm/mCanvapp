@@ -9,6 +9,7 @@ const EShapeKind = {
     Rect: "rect",
     Polygon: "polygon",
     Freehand: "freehand",
+    Label: "label",
 
     // UPPERCASE (기존 코드 호환)
     POINT: "point",
@@ -17,6 +18,7 @@ const EShapeKind = {
     RECT: "rect",
     POLYGON: "polygon",
     FREEHAND: "freehand",
+    LABEL: "label",
 };
 
 // 툴 정의 (toolSelect 옵션 + 단축키를 data-driven으로 구성)
@@ -32,6 +34,7 @@ const ShapeMenuList = [
     { value: EShapeKind.Rect, display: "사각형", shortcut: "R" },
     { value: EShapeKind.Polygon, display: "다각형", shortcut: "G" },
     { value: EShapeKind.Freehand, display: "자유곡선", shortcut: "F" },
+    { value: EShapeKind.Label, display: "라벨", shortcut: "T" },
 ];
 
 // 툴바 그룹 정의 (create-style-node 페이지 템플릿 툴바 구조를 객체화). Util.createElement + for문으로 동적 생성.

@@ -121,6 +121,31 @@
                                     </div>
                                 </details>
                             </div>
+                            <div id="detailWidgetBlock" class="detailBlock" hidden>
+                                <details class="detailCategory" id="detailCategoryWidget" open>
+                                    <summary class="detailCategory__summary">라벨 위젯</summary>
+                                    <div class="detailCategory__body">
+                                        <div class="detailField detailField--row">
+                                            <span class="detailField__label">상대 위치 (같은 부모 안 첫 도형·위젯 좌상단 대비·월드)</span>
+                                            <div class="detailCoords">
+                                                <span class="detailCoords__item">X <output id="detailWidgetRelX" class="detailCoords__value">—</output></span>
+                                                <span class="detailCoords__item">Y <output id="detailWidgetRelY" class="detailCoords__value">—</output></span>
+                                            </div>
+                                        </div>
+                                        <label class="detailField">
+                                            <span class="detailField__label">텍스트</span>
+                                            <input id="detailWidgetText" class="detailField__input" type="text" autocomplete="off" />
+                                        </label>
+                                        <span class="detailField__label">그룹 로컬 (좌상단)</span>
+                                        <div class="detailField__grid">
+                                            <label class="detailMiniField">X <input id="detailWidgetPosX" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                            <label class="detailMiniField">Y <input id="detailWidgetPosY" class="detailField__input detailField__input--num" type="number" step="any" /></label>
+                                            <label class="detailMiniField detailMiniField--color">색 <input id="detailWidgetColor" type="color" class="detailField__input detailField__input--color" /></label>
+                                            <label class="detailMiniField">폰트(px) <input id="detailWidgetFontSize" class="detailField__input detailField__input--num" type="number" min="6" max="200" step="1" /></label>
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
                             <div id="detailGroupBlock" class="detailBlock" hidden>
                                 <details class="detailCategory" id="detailCategoryGroupGeom" open>
                                     <summary class="detailCategory__summary">위치·크기</summary>
@@ -169,11 +194,12 @@
                         <li><b>선/사각형/원</b>: 드래그</li>
                         <li><b>다각형</b>: 클릭으로 점 추가, <b>더블클릭</b> 또는 <b>Enter</b>로 종료</li>
                         <li><b>자유곡선</b>: 드래그</li>
-                        <li><b>선택/이동</b>: 도형·그룹 클릭 후 드래그, <b>Del</b>로 삭제</li>
+                        <li><b>라벨</b>: 클릭한 위치에 텍스트 위젯 추가</li>
+                        <li><b>선택/이동</b>: 도형·위젯·그룹 클릭 후 드래그, <b>Del</b>로 삭제</li>
                     </ul>
                     <p class="helpDialog__sectionTitle">단축키</p>
                     <ul class="help">
-                        <li><b>V</b> 선택, <b>P</b> 점, <b>L</b> 선, <b>C</b> 원, <b>R</b> 사각형, <b>G</b> 다각형, <b>F</b> 자유곡선</li>
+                        <li><b>V</b> 선택, <b>P</b> 점, <b>L</b> 선, <b>C</b> 원, <b>R</b> 사각형, <b>G</b> 다각형, <b>F</b> 자유곡선, <b>T</b> 라벨</li>
                         <li><b>Ctrl+Z</b> 되돌리기</li>
                     </ul>
                 </div>

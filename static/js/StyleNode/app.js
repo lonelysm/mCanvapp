@@ -15,6 +15,7 @@ import {
 } from "./preview_session_store.js";
 import { HierarchyDetailUi } from "./hierarchy_detail_ui.js";
 import { loadStyleNodeDocumentFromServer, saveStyleNodeDocumentToServer } from "./style_node_server_io.js";
+import { flattenWidgetsInPaintOrder } from "./style_node_tree.js";
 
 /** Create Style Node 페이지 사이드바 접이 패널(제목 클릭) 바인딩. 기본은 펼침(aria-expanded=true). */
 function bindPreviewSidePanelCollapsibles() {
@@ -54,18 +55,35 @@ class CanvaApp {
 
     renderHistoryList() {
         const displayShapes = this.objectManager.getShapes();
+        const widgetNodes = flattenWidgetsInPaintOrder(this.objectManager.documentRoot);
         const selectedId = this.objectManager.selectedId;
-        const items = displayShapes
+        const selectedKind = this.objectManager.selectedKind;
+
+        const shapeItems = displayShapes
             .slice()
             .reverse()
             .map((shape, idxFromEnd) => {
                 const idx = displayShapes.length - 1 - idxFromEnd;
                 const title = `${idx + 1}. ${shape.displayName ?? "도형"}`;
                 const sub = shape.getSubLabel ? shape.getSubLabel() : "";
-                const selected = selectedId === shape.id;
+                const selected = selectedId === shape.id && selectedKind === "leaf";
                 const swatch = shape.style.stroke;
-                return { id: shape.id, title, sub, selected, swatch };
+                return { id: shape.id, kind: "leaf", title, sub, selected, swatch };
             });
+
+        const widgetItems = widgetNodes
+            .slice()
+            .reverse()
+            .map((wn, idxFromEnd) => {
+                const idx = widgetNodes.length - 1 - idxFromEnd;
+                const txt = wn.widget.text ?? "라벨";
+                const title = `W${idx + 1}. ${txt.length > 36 ? `${txt.slice(0, 36)}…` : txt}`;
+                const selected = selectedId === wn.id && selectedKind === "widget";
+                const sw = wn.widget.style.color ?? "#e6edf3";
+                return { id: wn.id, kind: "widget", title, sub: "라벨 위젯", selected, swatch: sw };
+            });
+
+        const items = shapeItems.concat(widgetItems);
 
         this.shapeListEl.innerHTML = "";
         for (const it of items) {
@@ -94,7 +112,7 @@ class CanvaApp {
             div.appendChild(meta);
             div.addEventListener("click", () => {
                 this.objectManager.selectedId = it.id;
-                this.objectManager.selectedKind = "leaf";
+                this.objectManager.selectedKind = it.kind === "widget" ? "widget" : "leaf";
                 TopMenu.getInstance().setTool(EShapeKind.Select);
                 this.renderer.requestRender();
             });

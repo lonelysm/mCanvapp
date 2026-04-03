@@ -3,6 +3,7 @@
 
 import { EShapeKind } from "./const.js";
 import { Util } from "../util.js";
+import { LabelWidget } from "./label_widget.js";
 import { PointShape, LineShape, CircleShape, RectShape, PolygonShape, FreehandShape } from "./shapes.js";
 import {
     NodeType,
@@ -10,10 +11,13 @@ import {
     createDocumentRoot,
     createGroupNode,
     createLeafNode,
+    createWidgetNode,
     ensureDocumentRootTree,
     findNodeWithParent,
     flattenShapesInPaintOrder,
+    flattenWidgetsInPaintOrder,
     getAccumulatedOffsetForLeaf,
+    getAccumulatedOffsetForNode,
     getGroupContentWorldOrigin,
     isStrictDescendantId,
     pickNodeAtWorld,
@@ -66,7 +70,7 @@ class ObjectManagerClass {
         }
 
         this.documentRoot = createDocumentRoot();
-        /** @type {"leaf" | "group" | null} */
+        /** @type {"leaf" | "group" | "widget" | null} */
         this.selectedKind = null;
         this.taskHistories = [];
 
@@ -135,6 +139,7 @@ class ObjectManagerClass {
         return {
             documentRoot: this.documentRoot,
             displayShapes: flattenShapesInPaintOrder(this.documentRoot),
+            displayWidgets: flattenWidgetsInPaintOrder(this.documentRoot),
             currentToolMode: this.currentToolMode,
             selectedId: this.selectedId,
             selectedKind: this.selectedKind,
@@ -183,6 +188,38 @@ class ObjectManagerClass {
             return;
         }
         loc.node.children.push(leaf);
+    }
+
+    /**
+     * 월드 좌표에 라벨 위젯을 넣는다(insertTargetGroupId 그룹 로컬).
+     * @param {{ x: number, y: number }} worldPoint
+     */
+    addLabelWidget(worldPoint) {
+        if (worldPoint === null || worldPoint === undefined) {
+            console.warn("[object_manager] addLabelWidget: 좌표 없음");
+            return;
+        }
+        const gid = this.insertTargetGroupId ?? this.documentRoot.id;
+        const o = getGroupContentWorldOrigin(this.documentRoot, gid, 0, 0);
+        if (o === null) {
+            console.warn("[object_manager] addLabelWidget: 그룹 원점 없음 id=%s", gid);
+            return;
+        }
+        const widgetCount = flattenWidgetsInPaintOrder(this.documentRoot).length;
+        const w = new LabelWidget({
+            name: `\uB77C\uBCA8${widgetCount + 1}`,
+            position: { x: worldPoint.x - o.x, y: worldPoint.y - o.y },
+            text: "Contents here",
+            style: { color: "#e6edf3", fontSize: 14, fontFamily: "system-ui, sans-serif" },
+        });
+        const node = createWidgetNode({ widget: w });
+        if (node === null) return;
+        const loc = findNodeWithParent(this.documentRoot, gid);
+        if (loc === null || loc.node.nodeType !== NodeType.GROUP) {
+            console.warn("[object_manager] addLabelWidget: 대상 그룹 없음");
+            return;
+        }
+        loc.node.children.push(node);
     }
 
     /** 선택된 그룹(또는 루트) 아래에 빈 자식 그룹을 추가한다. */
@@ -253,11 +290,12 @@ class ObjectManagerClass {
         const hit = this.pickAtWorld(pointerPoint);
         if (hit === null) return null;
         if (hit.kind === "leaf") return hit.node.shape;
+        if (hit.kind === "widget") return { isWidgetPick: true };
         return { isGroupPick: true };
     }
 
     /**
-     * @returns {{ kind: "leaf" | "group", node: object } | null}
+     * @returns {{ kind: "leaf" | "widget" | "group", node: object } | null}
      */
     pickAtWorld(pointerPoint) {
         return pickNodeAtWorld(pointerPoint.x, pointerPoint.y, this.documentRoot, 0, 0, this.documentRoot);
@@ -405,6 +443,7 @@ class ObjectManagerClass {
         /** 트리에서 빼기 전에 월드 기하를 구해야 한다 */
         let worldLeafShape = null;
         let worldGroupOrigin = null;
+        let worldWidgetCopy = null;
         if (draggedNode.nodeType === NodeType.LEAF) {
             const off = getAccumulatedOffsetForLeaf(this.documentRoot, draggedNodeId, 0, 0);
             if (off === null) {
@@ -419,6 +458,13 @@ class ObjectManagerClass {
                 return false;
             }
             worldGroupOrigin = { x: wo.x, y: wo.y };
+        } else if (draggedNode.nodeType === NodeType.WIDGET) {
+            const off = getAccumulatedOffsetForNode(this.documentRoot, draggedNodeId, 0, 0);
+            if (off === null) {
+                console.warn("[object_manager] reparentNodeToGroup: 위젯 누적 오프셋 실패");
+                return false;
+            }
+            worldWidgetCopy = draggedNode.widget.translate(off.x, off.y);
         } else {
             return false;
         }
@@ -438,6 +484,8 @@ class ObjectManagerClass {
 
         if (draggedNode.nodeType === NodeType.LEAF) {
             draggedNode.shape = worldLeafShape.translate(-oNew.x, -oNew.y);
+        } else if (draggedNode.nodeType === NodeType.WIDGET) {
+            draggedNode.widget = worldWidgetCopy.translate(-oNew.x, -oNew.y);
         } else {
             draggedNode.transform.x = worldGroupOrigin.x - oNew.x;
             draggedNode.transform.y = worldGroupOrigin.y - oNew.y;
@@ -447,7 +495,12 @@ class ObjectManagerClass {
         this._recalculateGroupOptionBAfterChildChange(targetGroup);
 
         this.selectedId = draggedNodeId;
-        this.selectedKind = draggedNode.nodeType === NodeType.LEAF ? "leaf" : "group";
+        this.selectedKind =
+            draggedNode.nodeType === NodeType.LEAF
+                ? "leaf"
+                : draggedNode.nodeType === NodeType.GROUP
+                  ? "group"
+                  : "widget";
         this.insertTargetGroupId = targetGroup.id;
 
         this._renderer?.requestRender?.();
@@ -498,6 +551,25 @@ class ObjectManagerClass {
                 this.selectedKind = "leaf";
             }
             this._renderer?.requestRender?.();
+            return;
+        }
+
+        if (this.currentToolMode === EShapeKind.Label) {
+            console.info("[object_manager] 라벨 위젯 추가 pointer=(%s,%s)", pointerDownPoint.x, pointerDownPoint.y);
+            this.pushTaskHistory();
+            this.addLabelWidget(pointerDownPoint);
+            const wNodes = flattenWidgetsInPaintOrder(this.documentRoot);
+            const lastW = wNodes[wNodes.length - 1];
+            if (lastW !== null && lastW !== undefined) {
+                this.selectedId = lastW.id;
+                this.selectedKind = "widget";
+                const fp = findNodeWithParent(this.documentRoot, lastW.id);
+                if (fp && fp.parent) {
+                    this.insertTargetGroupId = fp.parent.id;
+                }
+            }
+            this._renderer?.requestRender?.();
+            console.info("[object_manager] 라벨 위젯 추가 완료 id=%s", this.selectedId);
             return;
         }
 
@@ -587,6 +659,9 @@ class ObjectManagerClass {
                 if (this.selectedKind === "leaf") {
                     const sh = hit.node.shape;
                     this.dragCopiedOriginal.set(this.selectedId, sh.clone());
+                } else if (this.selectedKind === "widget") {
+                    const w = hit.node.widget;
+                    this.dragCopiedOriginal.set(this.selectedId, w.clone());
                 } else if (this.selectedKind === "group") {
                     const g = hit.node;
                     this.dragCopiedOriginal.set(this.selectedId, {
@@ -629,6 +704,15 @@ class ObjectManagerClass {
                         const loc = findNodeWithParent(this.documentRoot, this.selectedId);
                         if (loc && loc.node.nodeType === NodeType.LEAF) {
                             loc.node.shape = moved;
+                        }
+                    }
+                } else if (this.selectedKind === "widget") {
+                    const original = this.dragCopiedOriginal?.get(this.selectedId) ?? null;
+                    if (original) {
+                        const moved = original.translate(deltaX, deltaY);
+                        const loc = findNodeWithParent(this.documentRoot, this.selectedId);
+                        if (loc && loc.node.nodeType === NodeType.WIDGET) {
+                            loc.node.widget = moved;
                         }
                     }
                 } else if (this.selectedKind === "group") {

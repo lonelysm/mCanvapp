@@ -3,13 +3,16 @@
 import { EShapeKind } from "./const.js";
 import { Util } from "../util.js";
 import { TopMenu } from "./top_menu.js";
+import { getLabelWidgetBoundingBox } from "./label_widget.js";
 import { getShapeBoundingBox } from "./shape_bounds.js";
 import {
     NodeType,
     collectLeafNodes,
     findNodeWithParent,
     flattenShapesInPaintOrder,
+    flattenWidgetsInPaintOrder,
     getAccumulatedOffsetForLeaf,
+    getAccumulatedOffsetForNode,
     getGroupWorldContentBoundsTopLeft,
 } from "./style_node_tree.js";
 
@@ -52,6 +55,64 @@ function getLeafWorldTopLeft(documentRoot, shapeId) {
     if (sh === null) return null;
     const off = getAccumulatedOffsetForLeaf(documentRoot, shapeId, 0, 0);
     const b = getShapeBoundingBox(sh);
+    if (b === null || off === null) return null;
+    return { x: b.minX + off.x, y: b.minY + off.y };
+}
+
+/** 문서에서 첫 도형·없으면 첫 위젯의 월드 좌상단 */
+function getFirstDrawableWorldTopLeftDocument(documentRoot) {
+    const shapes = flattenShapesInPaintOrder(documentRoot);
+    if (shapes.length > 0) {
+        const first = shapes[0];
+        const off = getAccumulatedOffsetForNode(documentRoot, first.id, 0, 0);
+        const b = getShapeBoundingBox(first);
+        if (b !== null && off !== null) return { x: b.minX + off.x, y: b.minY + off.y };
+    }
+    const widgets = flattenWidgetsInPaintOrder(documentRoot);
+    if (widgets.length === 0) return null;
+    const wn = widgets[0];
+    const off = getAccumulatedOffsetForNode(documentRoot, wn.id, 0, 0);
+    const b = getLabelWidgetBoundingBox(wn.widget);
+    if (b === null || off === null) return null;
+    return { x: b.minX + off.x, y: b.minY + off.y };
+}
+
+/** 같은 부모 그룹에서 DFS 순 첫 리프·위젯의 월드 좌상단 */
+function getFirstDrawableWorldTopLeftInGroup(documentRoot, groupNode) {
+    if (groupNode === null || groupNode.nodeType !== NodeType.GROUP) return null;
+    for (const ch of groupNode.children) {
+        if (ch.nodeType === NodeType.LEAF) {
+            const off = getAccumulatedOffsetForNode(documentRoot, ch.id, 0, 0);
+            const b = getShapeBoundingBox(ch.shape);
+            if (b !== null && off !== null) return { x: b.minX + off.x, y: b.minY + off.y };
+        }
+        if (ch.nodeType === NodeType.WIDGET) {
+            const off = getAccumulatedOffsetForNode(documentRoot, ch.id, 0, 0);
+            const b = getLabelWidgetBoundingBox(ch.widget);
+            if (b !== null && off !== null) return { x: b.minX + off.x, y: b.minY + off.y };
+        }
+    }
+    return null;
+}
+
+/** 리프·위젯 공통 상대 기준 월드 좌상단 */
+function getRelativeBasisDrawableWorldTopLeft(documentRoot, selectedNodeId) {
+    const fp = findNodeWithParent(documentRoot, selectedNodeId);
+    if (fp === null) return null;
+    if (fp.node.nodeType !== NodeType.LEAF && fp.node.nodeType !== NodeType.WIDGET) return null;
+    const parent = fp.parent;
+    if (parent === null) {
+        return getFirstDrawableWorldTopLeftDocument(documentRoot);
+    }
+    return getFirstDrawableWorldTopLeftInGroup(documentRoot, parent);
+}
+
+/** 선택 위젯 바운딩 월드 좌상단 */
+function getWidgetWorldTopLeft(documentRoot, widgetNodeId) {
+    const fp = findNodeWithParent(documentRoot, widgetNodeId);
+    if (fp === null || fp.node.nodeType !== NodeType.WIDGET) return null;
+    const off = getAccumulatedOffsetForNode(documentRoot, widgetNodeId, 0, 0);
+    const b = getLabelWidgetBoundingBox(fp.node.widget);
     if (b === null || off === null) return null;
     return { x: b.minX + off.x, y: b.minY + off.y };
 }
@@ -100,6 +161,14 @@ export class HierarchyDetailUi {
         this.detailRelXEl = document.getElementById("detailRelX");
         this.detailRelYEl = document.getElementById("detailRelY");
         this.detailLeafBlock = document.getElementById("detailLeafBlock");
+        this.detailWidgetBlock = document.getElementById("detailWidgetBlock");
+        this.detailWidgetRelXEl = document.getElementById("detailWidgetRelX");
+        this.detailWidgetRelYEl = document.getElementById("detailWidgetRelY");
+        this.detailWidgetText = document.getElementById("detailWidgetText");
+        this.detailWidgetPosX = document.getElementById("detailWidgetPosX");
+        this.detailWidgetPosY = document.getElementById("detailWidgetPosY");
+        this.detailWidgetColor = document.getElementById("detailWidgetColor");
+        this.detailWidgetFontSize = document.getElementById("detailWidgetFontSize");
         this.detailGroupBlock = document.getElementById("detailGroupBlock");
         this.detailGroupTxInput = document.getElementById("detailGroupTxInput");
         this.detailGroupTyInput = document.getElementById("detailGroupTyInput");
@@ -360,6 +429,42 @@ export class HierarchyDetailUi {
         const onGroupChange = () => this._onGroupTransformChange();
         this.detailGroupTxInput?.addEventListener("change", onGroupChange);
         this.detailGroupTyInput?.addEventListener("change", onGroupChange);
+
+        const onWidgetChange = () => this._onWidgetDetailChange();
+        this.detailWidgetText?.addEventListener("change", onWidgetChange);
+        this.detailWidgetPosX?.addEventListener("change", onWidgetChange);
+        this.detailWidgetPosY?.addEventListener("change", onWidgetChange);
+        this.detailWidgetColor?.addEventListener("change", onWidgetChange);
+        this.detailWidgetFontSize?.addEventListener("change", onWidgetChange);
+    }
+
+    /** 선택 라벨 위젯 속성을 패널 값으로 반영한다 */
+    _onWidgetDetailChange() {
+        const sid = this.objectManager.selectedId;
+        const sk = this.objectManager.selectedKind;
+        if (sid === null || sk !== "widget") return;
+        const found = findNodeWithParent(this.objectManager.documentRoot, sid);
+        const n = found?.node ?? null;
+        if (n === null || n.nodeType !== NodeType.WIDGET) return;
+        const w = n.widget;
+
+        this.objectManager.pushTaskHistory();
+
+        const text = this.detailWidgetText?.value ?? w.text;
+        const px = this._readNumber(this.detailWidgetPosX, w.position.x);
+        const py = this._readNumber(this.detailWidgetPosY, w.position.y);
+        const col = this.detailWidgetColor?.value ?? "#e6edf3";
+        const fs = Util.clamp(this._readNumber(this.detailWidgetFontSize, w.style.fontSize), 6, 200);
+
+        w.text = String(text);
+        w.position.x = px;
+        w.position.y = py;
+        w.style.color = col.length >= 7 ? col : w.style.color;
+        w.style.fontSize = fs;
+
+        this.renderer.requestRender();
+        window.dispatchEvent(new CustomEvent("styleNode:detailUpdated"));
+        this.updateDetailRelativeCoords();
     }
 
     /** 선택 리프의 기하를 입력값으로 반영한다 */
@@ -546,6 +651,45 @@ export class HierarchyDetailUi {
             container.appendChild(row);
             return;
         }
+        if (node.nodeType === NodeType.WIDGET) {
+            const row = document.createElement("div");
+            row.className = "treeRow treeRow--widget";
+            row.style.paddingLeft = `${8 + depth * 14}px`;
+            row.dataset.widgetId = node.id;
+            row.setAttribute("role", "treeitem");
+            row.setAttribute("tabindex", "0");
+            {
+                const fpW = findNodeWithParent(this.objectManager.documentRoot, node.id);
+                const canDragW = fpW !== null && fpW.parent !== null;
+                row.draggable = canDragW;
+                if (canDragW) {
+                    row.dataset.dragNodeId = node.id;
+                    row.dataset.dragKind = "widget";
+                }
+            }
+            if (this.objectManager.selectedId === node.id && this.objectManager.selectedKind === "widget") {
+                row.classList.add("treeRow--selected");
+            }
+            const ic = document.createElement("span");
+            ic.className = "treeRow__icon treeRow__icon--small";
+            ic.textContent = "T";
+            const label = document.createElement("span");
+            label.className = "treeRow__label";
+            const widgetName = node.widget.name ?? node.widget.text ?? "";
+            label.textContent = widgetName.length > 32 ? `${widgetName.slice(0, 32)}...` : widgetName || "\uB77C\uBCA8";
+            row.appendChild(ic);
+            row.appendChild(label);
+            row.addEventListener("click", () => {
+                this.objectManager.selectedId = node.id;
+                this.objectManager.selectedKind = "widget";
+                this.objectManager.insertTargetGroupId =
+                    findNodeWithParent(this.objectManager.documentRoot, node.id)?.parent?.id ?? this.objectManager.documentRoot.id;
+                TopMenu.getInstance().setTool(EShapeKind.Select);
+                this.renderer.requestRender();
+            });
+            container.appendChild(row);
+            return;
+        }
         if (node.nodeType === NodeType.GROUP) {
             const row = document.createElement("div");
             row.className = `treeRow treeRow--group${depth === 0 ? " treeRow--root" : ""}`;
@@ -598,8 +742,11 @@ export class HierarchyDetailUi {
         const sk = this.objectManager.selectedKind;
         const rxEl = this.detailRelXEl;
         const ryEl = this.detailRelYEl;
-        if (rxEl === null || ryEl === null || sid === null) return;
+        const wrx = this.detailWidgetRelXEl;
+        const wry = this.detailWidgetRelYEl;
+        if (sid === null) return;
         if (sk === "leaf") {
+            if (rxEl === null || ryEl === null) return;
             const basis = getRelativeBasisLeafWorldTopLeft(root, sid);
             const cur = getLeafWorldTopLeft(root, sid);
             if (basis === null || cur === null) {
@@ -609,6 +756,18 @@ export class HierarchyDetailUi {
             }
             rxEl.textContent = String(Math.round(cur.x - basis.x));
             ryEl.textContent = String(Math.round(cur.y - basis.y));
+        }
+        if (sk === "widget") {
+            if (wrx === null || wry === null) return;
+            const basis = getRelativeBasisDrawableWorldTopLeft(root, sid);
+            const cur = getWidgetWorldTopLeft(root, sid);
+            if (basis === null || cur === null) {
+                wrx.textContent = "—";
+                wry.textContent = "—";
+                return;
+            }
+            wrx.textContent = String(Math.round(cur.x - basis.x));
+            wry.textContent = String(Math.round(cur.y - basis.y));
         }
     }
 
@@ -644,8 +803,11 @@ export class HierarchyDetailUi {
             nameEl.disabled = true;
             rxEl.textContent = "—";
             ryEl.textContent = "—";
+            if (this.detailWidgetRelXEl !== null) this.detailWidgetRelXEl.textContent = "—";
+            if (this.detailWidgetRelYEl !== null) this.detailWidgetRelYEl.textContent = "—";
             wrap.classList.add("detailPanel--empty");
             if (this.detailLeafBlock) this.detailLeafBlock.hidden = true;
+            if (this.detailWidgetBlock) this.detailWidgetBlock.hidden = true;
             if (this.detailGroupBlock) this.detailGroupBlock.hidden = true;
             return;
         }
@@ -656,6 +818,7 @@ export class HierarchyDetailUi {
 
         if (sk === "group" && n !== null && n.nodeType === NodeType.GROUP) {
             if (this.detailLeafBlock) this.detailLeafBlock.hidden = true;
+            if (this.detailWidgetBlock) this.detailWidgetBlock.hidden = true;
             if (this.detailGroupBlock) this.detailGroupBlock.hidden = false;
             nameEl.disabled = false;
             if (!editingName) nameEl.value = n.name ?? "Group";
@@ -668,6 +831,7 @@ export class HierarchyDetailUi {
             }
         } else if (sk === "leaf" && n !== null && n.nodeType === NodeType.LEAF) {
             if (this.detailLeafBlock) this.detailLeafBlock.hidden = false;
+            if (this.detailWidgetBlock) this.detailWidgetBlock.hidden = true;
             if (this.detailGroupBlock) this.detailGroupBlock.hidden = true;
             nameEl.disabled = false;
             if (!editingName) nameEl.value = n.shape.displayName;
@@ -685,6 +849,34 @@ export class HierarchyDetailUi {
                 this._fillLeafGeometryFields(n.shape);
                 this._fillLeafStyleFields(n.shape);
             }
+        } else if (sk === "widget" && n !== null && n.nodeType === NodeType.WIDGET) {
+            if (this.detailLeafBlock) this.detailLeafBlock.hidden = true;
+            if (this.detailWidgetBlock) this.detailWidgetBlock.hidden = false;
+            if (this.detailGroupBlock) this.detailGroupBlock.hidden = true;
+            nameEl.disabled = false;
+            const w = n.widget;
+            if (!editingName) nameEl.value = w.name ?? w.text;
+            const basis = getRelativeBasisDrawableWorldTopLeft(root, sid);
+            const cur = getWidgetWorldTopLeft(root, sid);
+            const wrx = this.detailWidgetRelXEl;
+            const wry = this.detailWidgetRelYEl;
+            if (wrx !== null && wry !== null) {
+                if (basis === null || cur === null) {
+                    wrx.textContent = "—";
+                    wry.textContent = "—";
+                } else {
+                    wrx.textContent = String(Math.round(cur.x - basis.x));
+                    wry.textContent = String(Math.round(cur.y - basis.y));
+                }
+            }
+            if (!editingForm) {
+                if (this.detailWidgetText !== null) this.detailWidgetText.value = w.text;
+                if (this.detailWidgetPosX !== null) this.detailWidgetPosX.value = String(w.position.x);
+                if (this.detailWidgetPosY !== null) this.detailWidgetPosY.value = String(w.position.y);
+                const col = typeof w.style.color === "string" && w.style.color.startsWith("#") ? w.style.color : "#e6edf3";
+                if (this.detailWidgetColor !== null) this.detailWidgetColor.value = col.length >= 7 ? col.slice(0, 7) : "#e6edf3";
+                if (this.detailWidgetFontSize !== null) this.detailWidgetFontSize.value = String(Math.round(w.style.fontSize));
+            }
         }
     }
 
@@ -698,6 +890,9 @@ export class HierarchyDetailUi {
         if (n === null) return;
         if (sk === "leaf" && n.nodeType === NodeType.LEAF) {
             n.shape.setDisplayName(nameEl.value);
+        } else if (sk === "widget" && n.nodeType === NodeType.WIDGET) {
+            const widgetName = nameEl.value.trim();
+            if (widgetName !== "") n.widget.name = widgetName;
         } else if (sk === "group" && n.nodeType === NodeType.GROUP) {
             const t = nameEl.value.trim();
             if (t !== "") n.name = t;

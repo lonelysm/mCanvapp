@@ -1,11 +1,13 @@
-// StyleNode 계층: 그룹(중첩) + 리프(도형). 리프 기하는 부모 그룹 로컬 좌표.
+// StyleNode 계층: 그룹(중첩) + 리프(도형) + 위젯(라벨 등). 기하는 부모 그룹 로컬 좌표.
 
 import { Util } from "../util.js";
+import { getLabelWidgetBoundingBox } from "./label_widget.js";
 import { getShapeBoundingBox } from "./shape_bounds.js";
 
 export const NodeType = {
     GROUP: "group",
     LEAF: "leaf",
+    WIDGET: "widget",
 };
 
 /**
@@ -94,9 +96,21 @@ export function createLeafNode(options) {
 }
 
 /**
- * id로 노드와 부모 그룹·인덱스를 찾는다.
- * @returns {{ node: object, parent: object | null, index: number } | null}
+ * @param {{ id?: string, widget: import("./label_widget.js").LabelWidget }} options
  */
+export function createWidgetNode(options) {
+    const w = options?.widget ?? null;
+    if (w === null) {
+        console.warn("[style_node_tree] createWidgetNode: widget 없음");
+        return null;
+    }
+    return {
+        nodeType: NodeType.WIDGET,
+        id: options.id ?? w.id,
+        widget: w,
+    };
+}
+
 /**
  * rootSubtree 트리 안에서 needleId가 rootSubtree 자식 이하(자기 자신은 제외)에 있으면 참. 그룹 드롭 금지 판별용.
  * @param {object} rootSubtree
@@ -182,6 +196,25 @@ export function flattenShapesInPaintOrder(root) {
     return leaves.map((n) => n.shape);
 }
 
+/** 위젯 노드만 문서 순서대로 (목록·HUD용) */
+export function flattenWidgetsInPaintOrder(root) {
+    const out = [];
+    function walk(n) {
+        if (n === null || n === undefined) return;
+        if (n.nodeType === NodeType.WIDGET) {
+            out.push(n);
+            return;
+        }
+        if (n.nodeType === NodeType.GROUP) {
+            for (const ch of n.children) {
+                walk(ch);
+            }
+        }
+    }
+    walk(root);
+    return out;
+}
+
 /**
  * 그룹의 모든 자손 리프 월드 바운딩을 합친다.
  * @returns {{ minX: number, minY: number, maxX: number, maxY: number } | null}
@@ -216,6 +249,16 @@ export function getGroupWorldBounds(group, ox, oy) {
                     maxY: b.maxY + gy,
                 });
             }
+        } else if (ch.nodeType === NodeType.WIDGET) {
+            const wb = getLabelWidgetBoundingBox(ch.widget);
+            if (wb !== null) {
+                merge({
+                    minX: wb.minX + gx,
+                    minY: wb.minY + gy,
+                    maxX: wb.maxX + gx,
+                    maxY: wb.maxY + gy,
+                });
+            }
         } else if (ch.nodeType === NodeType.GROUP) {
             const sub = getGroupWorldBounds(ch, gx, gy);
             if (sub !== null) merge(sub);
@@ -236,10 +279,18 @@ function pointInBounds(px, py, b) {
  * 월드 좌표에서 최상단(나중에 그린) 노드를 고른다. 리프 우선, 그다음 부모 그룹 빈 영역.
  * documentRoot는 바운딩으로만 잡히면 팬이 막이므로 그룹 선택에서 제외한다.
  * @param {object} documentRoot — 최상위 세션 루트(참조 비교)
- * @returns {{ kind: "leaf" | "group", node: object } | null}
+ * @returns {{ kind: "leaf" | "widget" | "group", node: object } | null}
  */
 export function pickNodeAtWorld(worldX, worldY, node, ox, oy, documentRoot) {
     if (node === null || node === undefined) return null;
+    if (node.nodeType === NodeType.WIDGET) {
+        const lx = worldX - ox;
+        const ly = worldY - oy;
+        if (node.widget.hitTestLocal({ x: lx, y: ly })) {
+            return { kind: "widget", node };
+        }
+        return null;
+    }
     if (node.nodeType === NodeType.LEAF) {
         const lx = worldX - ox;
         const ly = worldY - oy;
@@ -299,6 +350,8 @@ export function recalculateGroupOriginOptionB(group, parentWorldX, parentWorldY)
     for (const ch of group.children) {
         if (ch.nodeType === NodeType.LEAF) {
             ch.shape = ch.shape.translate(dx, dy);
+        } else if (ch.nodeType === NodeType.WIDGET) {
+            ch.widget = ch.widget.translate(dx, dy);
         } else if (ch.nodeType === NodeType.GROUP) {
             ch.transform.x += dx;
             ch.transform.y += dy;
@@ -313,20 +366,32 @@ export function recalculateGroupOriginOptionB(group, parentWorldX, parentWorldY)
  * 리프 shape를 월드로 옮기기 위한 누적 translate (조상 그룹 transform 합).
  * @returns {{ x: number, y: number } | null}
  */
-export function getAccumulatedOffsetForLeaf(root, leafShapeId, ox = 0, oy = 0) {
+/**
+ * 리프·위젯 노드 id(또는 리프의 shape.id)에 대한 부모 체인 누적 원점.
+ * @returns {{ x: number, y: number } | null}
+ */
+export function getAccumulatedOffsetForNode(root, nodeId, ox = 0, oy = 0) {
     if (root === null || root === undefined) return null;
-    if (root.nodeType === NodeType.LEAF && (root.id === leafShapeId || root.shape.id === leafShapeId)) {
+    if (root.nodeType === NodeType.LEAF && (root.id === nodeId || root.shape.id === nodeId)) {
+        return { x: ox, y: oy };
+    }
+    if (root.nodeType === NodeType.WIDGET && root.id === nodeId) {
         return { x: ox, y: oy };
     }
     if (root.nodeType === NodeType.GROUP) {
         const gx = ox + root.transform.x;
         const gy = oy + root.transform.y;
         for (const ch of root.children) {
-            const r = getAccumulatedOffsetForLeaf(ch, leafShapeId, gx, gy);
+            const r = getAccumulatedOffsetForNode(ch, nodeId, gx, gy);
             if (r !== null) return r;
         }
     }
     return null;
+}
+
+/** @deprecated 이름 호환 — getAccumulatedOffsetForNode와 동일 */
+export function getAccumulatedOffsetForLeaf(root, leafShapeId, ox = 0, oy = 0) {
+    return getAccumulatedOffsetForNode(root, leafShapeId, ox, oy);
 }
 
 /**
@@ -383,6 +448,13 @@ export function cloneDocumentRoot(root) {
             nodeType: NodeType.LEAF,
             id: root.id,
             shape: root.shape.clone(),
+        };
+    }
+    if (root.nodeType === NodeType.WIDGET) {
+        return {
+            nodeType: NodeType.WIDGET,
+            id: root.id,
+            widget: root.widget.clone(),
         };
     }
     if (root.nodeType === NodeType.GROUP) {

@@ -4,9 +4,11 @@ import { shapeFromPlain, shapeToPlain } from "./shape_snapshot.js";
 import { nodeFromPlain, nodeToPlain, wrapFlatShapesInSessionRoot } from "./shape_tree_snapshot.js";
 import { createDocumentRoot, ensureDocumentRootTree } from "./style_node_tree.js";
 
-const STORAGE_KEY = "mCanvapp.previewSession.v2";
+const STORAGE_KEY = "mCanvapp.previewSession.v3";
 const SCHEMA_VERSION_V1 = 1;
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION_V2 = 2;
+/** 문서 트리에 위젯 노드(WIDGET) 포함 */
+const SCHEMA_VERSION = 3;
 
 /**
  * 현재 ObjectManager·Renderer·툴바에서 저장용 스냅샷 객체를 만든다.
@@ -63,7 +65,7 @@ export function applyPreviewSnapshot(snapshot, deps) {
 
     const ver = snapshot.version;
 
-    if (ver === SCHEMA_VERSION) {
+    if (ver === SCHEMA_VERSION || ver === SCHEMA_VERSION_V2) {
         const rawDoc = nodeFromPlain(snapshot.document);
         objectManager.documentRoot = ensureDocumentRootTree(rawDoc !== null ? rawDoc : createDocumentRoot());
         objectManager.insertTargetGroupId = snapshot.insertTargetGroupId ?? objectManager.documentRoot.id;
@@ -79,7 +81,7 @@ export function applyPreviewSnapshot(snapshot, deps) {
     }
 
     const layers = snapshot.taskHistories ?? [];
-    if (ver === SCHEMA_VERSION) {
+    if (ver === SCHEMA_VERSION || ver === SCHEMA_VERSION_V2) {
         objectManager.taskHistories = layers
             .map((p) => {
                 const n = nodeFromPlain(p);
@@ -130,8 +132,13 @@ export function loadPreviewSnapshotFromStorage() {
     console.info("[preview_session_store] sessionStorage 읽기 시작");
     try {
         const raw = sessionStorage.getItem(STORAGE_KEY);
-        const rawLegacy = raw === null || raw === "" ? sessionStorage.getItem("mCanvapp.previewSession.v1") : null;
-        const useRaw = raw !== null && raw !== "" ? raw : rawLegacy;
+        const rawLegacyV2 =
+            raw === null || raw === "" ? sessionStorage.getItem("mCanvapp.previewSession.v2") : null;
+        const rawLegacy =
+            (raw === null || raw === "") && (rawLegacyV2 === null || rawLegacyV2 === "")
+                ? sessionStorage.getItem("mCanvapp.previewSession.v1")
+                : null;
+        const useRaw = raw !== null && raw !== "" ? raw : rawLegacyV2 ?? rawLegacy;
         if (useRaw === null || useRaw === undefined || useRaw === "") {
             console.info("[preview_session_store] sessionStorage 비어 있음, 읽기 종료");
             return null;
@@ -141,7 +148,7 @@ export function loadPreviewSnapshotFromStorage() {
             console.warn("[preview_session_store] 잘못된 JSON");
             return null;
         }
-        if (data.version !== SCHEMA_VERSION && data.version !== SCHEMA_VERSION_V1) {
+        if (data.version !== SCHEMA_VERSION && data.version !== SCHEMA_VERSION_V2 && data.version !== SCHEMA_VERSION_V1) {
             console.warn("[preview_session_store] 스키마 불일치");
             return null;
         }

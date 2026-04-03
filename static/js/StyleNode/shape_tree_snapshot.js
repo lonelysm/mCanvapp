@@ -1,7 +1,50 @@
 // 문서 트리 ↔ JSON 평면 객체 (세션 저장·서버 연동)
 
+import { LabelWidget, WidgetKind } from "./label_widget.js";
 import { shapeFromPlain, shapeToPlain } from "./shape_snapshot.js";
-import { NodeType, createDocumentRoot, createGroupNode, createLeafNode } from "./style_node_tree.js";
+import { NodeType, createDocumentRoot, createGroupNode, createLeafNode, createWidgetNode } from "./style_node_tree.js";
+
+/**
+ * @param {object} plain
+ * @returns {import("./label_widget.js").LabelWidget | null}
+ */
+function widgetFromPlain(plain) {
+    if (plain === null || plain === undefined || typeof plain !== "object") {
+        return null;
+    }
+    if (plain.widgetKind === WidgetKind.LABEL) {
+        return new LabelWidget({
+            id: plain.id,
+            name: plain.name,
+            position: plain.position ?? { x: 0, y: 0 },
+            text: plain.text,
+            style: plain.style,
+        });
+    }
+    console.warn("[shape_tree_snapshot] widgetFromPlain: 알 수 없는 widgetKind=%s", plain.widgetKind);
+    return null;
+}
+
+/**
+ * @param {import("./label_widget.js").LabelWidget} widget
+ * @returns {object | null}
+ */
+function widgetToPlain(widget) {
+    if (widget === null || widget === undefined) {
+        return null;
+    }
+    if (widget.widgetKind === WidgetKind.LABEL) {
+        return {
+            widgetKind: WidgetKind.LABEL,
+            id: widget.id,
+            name: widget.name,
+            position: { ...widget.position },
+            text: widget.text,
+            style: { ...widget.style },
+        };
+    }
+    return null;
+}
 
 /**
  * @param {object} node
@@ -16,6 +59,11 @@ export function nodeToPlain(node) {
         const plainShape = shapeToPlain(node.shape);
         if (plainShape === null) return null;
         return { nodeType: NodeType.LEAF, id: node.id, shape: plainShape };
+    }
+    if (node.nodeType === NodeType.WIDGET) {
+        const pw = widgetToPlain(node.widget);
+        if (pw === null) return null;
+        return { nodeType: NodeType.WIDGET, id: node.id, widget: pw };
     }
     if (node.nodeType === NodeType.GROUP) {
         const children = node.children.map(nodeToPlain).filter((c) => c !== null);
@@ -43,6 +91,11 @@ export function nodeFromPlain(plain) {
         const sh = shapeFromPlain(plain.shape);
         if (sh === null) return null;
         return createLeafNode({ id: plain.id, shape: sh });
+    }
+    if (plain.nodeType === NodeType.WIDGET) {
+        const w = widgetFromPlain(plain.widget);
+        if (w === null) return null;
+        return createWidgetNode({ id: plain.id, widget: w });
     }
     if (plain.nodeType === NodeType.GROUP) {
         const g = createGroupNode({
