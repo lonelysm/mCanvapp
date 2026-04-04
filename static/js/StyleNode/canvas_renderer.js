@@ -8,6 +8,7 @@ import { Util } from "../util.js";
 import { TopMenu } from "./top_menu.js";
 import { ObjectManagerClass } from "./object_manager.js";
 import { NodeType, findNodeWithParent, getAccumulatedOffsetForNode, getAccumulatedOffsetForLeaf, getGroupWorldBounds } from "./style_node_tree.js";
+import { getShapeBoundingBox } from "./shape_bounds.js";
 
 class CanvasRenderer {
     static #instance = null;
@@ -300,6 +301,19 @@ class CanvasRenderer {
         if (node === null || node === undefined) return;
         if (node.nodeType === NodeType.LEAF) {
             this._drawShape(node.shape);
+            if (Array.isArray(node.children) && node.children.length > 0) {
+                const bounds = getShapeBoundingBox(node.shape);
+                if (bounds !== null) {
+                    const childOx = ox + bounds.minX;
+                    const childOy = oy + bounds.minY;
+                    this.screenCtx.save();
+                    this.screenCtx.translate(bounds.minX, bounds.minY);
+                    for (const ch of node.children) {
+                        this._drawNode(ch, childOx, childOy);
+                    }
+                    this.screenCtx.restore();
+                }
+            }
             return;
         }
         if (node.nodeType === NodeType.WIDGET) {
@@ -332,6 +346,19 @@ class CanvasRenderer {
                     if (b !== null) return b;
                 }
             } else if (node.nodeType === NodeType.LEAF) {
+                if (!Array.isArray(node.children) || node.children.length === 0) {
+                    return null;
+                }
+                const bounds = getShapeBoundingBox(node.shape);
+                if (bounds === null) {
+                    return null;
+                }
+                const childPx = px + bounds.minX;
+                const childPy = py + bounds.minY;
+                for (const ch of node.children) {
+                    const b = findBounds(ch, childPx, childPy);
+                    if (b !== null) return b;
+                }
                 return null;
             }
             return null;

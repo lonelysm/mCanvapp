@@ -10,6 +10,25 @@ export const NodeType = {
     WIDGET: "widget",
 };
 
+function getNodeChildren(node) {
+    if (node === null || node === undefined) return [];
+    if (node.nodeType === NodeType.GROUP || node.nodeType === NodeType.LEAF) {
+        return Array.isArray(node.children) ? node.children : [];
+    }
+    return [];
+}
+
+function getLeafChildLocalOrigin(leafNode) {
+    if (leafNode === null || leafNode === undefined || leafNode.nodeType !== NodeType.LEAF) {
+        return { x: 0, y: 0 };
+    }
+    const bounds = getShapeBoundingBox(leafNode.shape);
+    if (bounds === null) {
+        return { x: 0, y: 0 };
+    }
+    return { x: bounds.minX, y: bounds.minY };
+}
+
 /**
  * 빈 작업 세션 그룹을 만든다. 문서 루트의 자식으로 두거나 단독(구버전)으로 쓸 수 있다.
  */
@@ -80,7 +99,7 @@ export function createGroupNode(options) {
 }
 
 /**
- * @param {{ id?: string, shape: import("./shapes.js").BaseShape }} options
+ * @param {{ id?: string, shape: import("./shapes.js").BaseShape, children?: object[] }} options
  */
 export function createLeafNode(options) {
     const sh = options?.shape ?? null;
@@ -92,6 +111,7 @@ export function createLeafNode(options) {
         nodeType: NodeType.LEAF,
         id: options.id ?? sh.id,
         shape: sh,
+        children: Array.isArray(options?.children) ? options.children : [],
     };
 }
 
@@ -142,11 +162,12 @@ export function findNodeWithParent(root, id) {
     if (root.id === id) {
         return { node: root, parent: null, index: -1 };
     }
-    if (root.nodeType !== NodeType.GROUP) {
+    if (root.nodeType !== NodeType.GROUP && root.nodeType !== NodeType.LEAF) {
         return null;
     }
-    for (let i = 0; i < root.children.length; i++) {
-        const ch = root.children[i];
+    const children = getNodeChildren(root);
+    for (let i = 0; i < children.length; i++) {
+        const ch = children[i];
         if (ch.id === id) {
             return { node: ch, parent: root, index: i };
         }
@@ -162,14 +183,22 @@ export function findNodeWithParent(root, id) {
  */
 export function getGroupContentWorldOrigin(root, groupId, ox = 0, oy = 0) {
     if (root === null || root === undefined) return null;
-    if (root.id === groupId) {
+    if (root.nodeType === NodeType.GROUP && root.id === groupId) {
         return { x: ox + root.transform.x, y: oy + root.transform.y };
     }
-    if (root.nodeType !== NodeType.GROUP) return null;
-    const gx = ox + root.transform.x;
-    const gy = oy + root.transform.y;
-    for (const ch of root.children) {
-        const r = getGroupContentWorldOrigin(ch, groupId, gx, gy);
+    if (root.nodeType === NodeType.GROUP) {
+        const gx = ox + root.transform.x;
+        const gy = oy + root.transform.y;
+        for (const ch of root.children) {
+            const r = getGroupContentWorldOrigin(ch, groupId, gx, gy);
+            if (r !== null) return r;
+        }
+        return null;
+    }
+    if (root.nodeType !== NodeType.LEAF) return null;
+    const childOrigin = getLeafChildLocalOrigin(root);
+    for (const ch of getNodeChildren(root)) {
+        const r = getGroupContentWorldOrigin(ch, groupId, ox + childOrigin.x, oy + childOrigin.y);
         if (r !== null) return r;
     }
     return null;
@@ -180,12 +209,9 @@ export function collectLeafNodes(node, out) {
     if (node === null || node === undefined) return;
     if (node.nodeType === NodeType.LEAF) {
         out.push(node);
-        return;
     }
-    if (node.nodeType === NodeType.GROUP) {
-        for (const ch of node.children) {
-            collectLeafNodes(ch, out);
-        }
+    for (const ch of getNodeChildren(node)) {
+        collectLeafNodes(ch, out);
     }
 }
 
@@ -205,14 +231,46 @@ export function flattenWidgetsInPaintOrder(root) {
             out.push(n);
             return;
         }
-        if (n.nodeType === NodeType.GROUP) {
-            for (const ch of n.children) {
-                walk(ch);
-            }
+        for (const ch of getNodeChildren(n)) {
+            walk(ch);
         }
     }
     walk(root);
     return out;
+}
+
+function getNodeWorldBounds(node, ox, oy) {
+    if (node === null || node === undefined) return null;
+    if (node.nodeType === NodeType.WIDGET) {
+        const widgetBounds = getLabelWidgetBoundingBox(node.widget);
+        if (widgetBounds === null) return null;
+        return {
+            minX: widgetBounds.minX + ox,
+            minY: widgetBounds.minY + oy,
+            maxX: widgetBounds.maxX + ox,
+            maxY: widgetBounds.maxY + oy,
+        };
+    }
+    if (node.nodeType === NodeType.LEAF) {
+        const shapeBounds = getShapeBoundingBox(node.shape);
+        let minX = shapeBounds !== null && shapeBounds !== undefined ? shapeBounds.minX + ox : Infinity;
+        let minY = shapeBounds !== null && shapeBounds !== undefined ? shapeBounds.minY + oy : Infinity;
+        let maxX = shapeBounds !== null && shapeBounds !== undefined ? shapeBounds.maxX + ox : -Infinity;
+        let maxY = shapeBounds !== null && shapeBounds !== undefined ? shapeBounds.maxY + oy : -Infinity;
+        const childOrigin = getLeafChildLocalOrigin(node);
+        for (const ch of getNodeChildren(node)) {
+            const childBounds = getNodeWorldBounds(ch, ox + childOrigin.x, oy + childOrigin.y);
+            if (childBounds === null) continue;
+            minX = Math.min(minX, childBounds.minX);
+            minY = Math.min(minY, childBounds.minY);
+            maxX = Math.max(maxX, childBounds.maxX);
+            maxY = Math.max(maxY, childBounds.maxY);
+        }
+        if (!Number.isFinite(minX)) return null;
+        return { minX, minY, maxX, maxY };
+    }
+    if (node.nodeType !== NodeType.GROUP) return null;
+    return getGroupWorldBounds(node, ox, oy);
 }
 
 /**
@@ -239,30 +297,7 @@ export function getGroupWorldBounds(group, ox, oy) {
     };
 
     for (const ch of group.children) {
-        if (ch.nodeType === NodeType.LEAF) {
-            const b = getShapeBoundingBox(ch.shape);
-            if (b !== null) {
-                merge({
-                    minX: b.minX + gx,
-                    minY: b.minY + gy,
-                    maxX: b.maxX + gx,
-                    maxY: b.maxY + gy,
-                });
-            }
-        } else if (ch.nodeType === NodeType.WIDGET) {
-            const wb = getLabelWidgetBoundingBox(ch.widget);
-            if (wb !== null) {
-                merge({
-                    minX: wb.minX + gx,
-                    minY: wb.minY + gy,
-                    maxX: wb.maxX + gx,
-                    maxY: wb.maxY + gy,
-                });
-            }
-        } else if (ch.nodeType === NodeType.GROUP) {
-            const sub = getGroupWorldBounds(ch, gx, gy);
-            if (sub !== null) merge(sub);
-        }
+        merge(getNodeWorldBounds(ch, gx, gy));
     }
 
     if (!Number.isFinite(minX)) {
@@ -292,6 +327,12 @@ export function pickNodeAtWorld(worldX, worldY, node, ox, oy, documentRoot) {
         return null;
     }
     if (node.nodeType === NodeType.LEAF) {
+        const childOrigin = getLeafChildLocalOrigin(node);
+        const children = getNodeChildren(node);
+        for (let i = children.length - 1; i >= 0; i--) {
+            const hitChild = pickNodeAtWorld(worldX, worldY, children[i], ox + childOrigin.x, oy + childOrigin.y, documentRoot);
+            if (hitChild !== null) return hitChild;
+        }
         const lx = worldX - ox;
         const ly = worldY - oy;
         const sh = node.shape;
@@ -385,6 +426,12 @@ export function getAccumulatedOffsetForNode(root, nodeId, ox = 0, oy = 0) {
             const r = getAccumulatedOffsetForNode(ch, nodeId, gx, gy);
             if (r !== null) return r;
         }
+    } else if (root.nodeType === NodeType.LEAF) {
+        const childOrigin = getLeafChildLocalOrigin(root);
+        for (const ch of getNodeChildren(root)) {
+            const r = getAccumulatedOffsetForNode(ch, nodeId, ox + childOrigin.x, oy + childOrigin.y);
+            if (r !== null) return r;
+        }
     }
     return null;
 }
@@ -404,14 +451,22 @@ export function getAccumulatedOffsetForLeaf(root, leafShapeId, ox = 0, oy = 0) {
  */
 export function getGroupWorldOrigin(root, groupId, ox = 0, oy = 0) {
     if (root === null || root === undefined) return null;
-    if (root.nodeType !== NodeType.GROUP) return null;
-    const wx = ox + root.transform.x;
-    const wy = oy + root.transform.y;
-    if (root.id === groupId) {
-        return { x: wx, y: wy };
+    if (root.nodeType === NodeType.GROUP) {
+        const wx = ox + root.transform.x;
+        const wy = oy + root.transform.y;
+        if (root.id === groupId) {
+            return { x: wx, y: wy };
+        }
+        for (const ch of root.children) {
+            const r = getGroupWorldOrigin(ch, groupId, wx, wy);
+            if (r !== null) return r;
+        }
+        return null;
     }
-    for (const ch of root.children) {
-        const r = getGroupWorldOrigin(ch, groupId, wx, wy);
+    if (root.nodeType !== NodeType.LEAF) return null;
+    const childOrigin = getLeafChildLocalOrigin(root);
+    for (const ch of getNodeChildren(root)) {
+        const r = getGroupWorldOrigin(ch, groupId, ox + childOrigin.x, oy + childOrigin.y);
         if (r !== null) return r;
     }
     return null;
@@ -431,10 +486,18 @@ export function getGroupWorldContentBoundsTopLeft(root, groupId) {
     let ox = 0;
     let oy = 0;
     if (parent !== null) {
-        const po = getGroupWorldOrigin(root, parent.id);
-        if (po === null) return null;
-        ox = po.x;
-        oy = po.y;
+        if (parent.nodeType === NodeType.GROUP) {
+            const po = getGroupWorldOrigin(root, parent.id);
+            if (po === null) return null;
+            ox = po.x;
+            oy = po.y;
+        } else if (parent.nodeType === NodeType.LEAF) {
+            const leafOrigin = getAccumulatedOffsetForNode(root, parent.id);
+            const childOrigin = getLeafChildLocalOrigin(parent);
+            if (leafOrigin === null) return null;
+            ox = leafOrigin.x + childOrigin.x;
+            oy = leafOrigin.y + childOrigin.y;
+        }
     }
     const b = getGroupWorldBounds(g, ox, oy);
     if (b === null) return null;
@@ -448,6 +511,7 @@ export function cloneDocumentRoot(root) {
             nodeType: NodeType.LEAF,
             id: root.id,
             shape: root.shape.clone(),
+            children: getNodeChildren(root).map((c) => cloneDocumentRoot(c)),
         };
     }
     if (root.nodeType === NodeType.WIDGET) {

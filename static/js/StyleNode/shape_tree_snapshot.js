@@ -58,7 +58,8 @@ export function nodeToPlain(node) {
     if (node.nodeType === NodeType.LEAF) {
         const plainShape = shapeToPlain(node.shape);
         if (plainShape === null) return null;
-        return { nodeType: NodeType.LEAF, id: node.id, shape: plainShape };
+        const children = Array.isArray(node.children) ? node.children.map(nodeToPlain).filter((c) => c !== null) : [];
+        return { nodeType: NodeType.LEAF, id: node.id, shape: plainShape, children };
     }
     if (node.nodeType === NodeType.WIDGET) {
         const pw = widgetToPlain(node.widget);
@@ -90,7 +91,13 @@ export function nodeFromPlain(plain) {
     if (plain.nodeType === NodeType.LEAF) {
         const sh = shapeFromPlain(plain.shape);
         if (sh === null) return null;
-        return createLeafNode({ id: plain.id, shape: sh });
+        const children = [];
+        const plainChildren = Array.isArray(plain.children) ? plain.children : [];
+        for (const childPlain of plainChildren) {
+            const childNode = nodeFromPlain(childPlain);
+            if (childNode !== null) children.push(childNode);
+        }
+        return createLeafNode({ id: plain.id, shape: sh, children });
     }
     if (plain.nodeType === NodeType.WIDGET) {
         const w = widgetFromPlain(plain.widget);

@@ -5,6 +5,7 @@ import { EShapeKind } from "./const.js";
 import { Util } from "../util.js";
 import { LabelWidget } from "./label_widget.js";
 import { PointShape, LineShape, CircleShape, RectShape, PolygonShape, FreehandShape } from "./shapes.js";
+import { getShapeBoundingBox } from "./shape_bounds.js";
 import {
     NodeType,
     cloneDocumentRoot,
@@ -418,16 +419,7 @@ class ObjectManagerClass {
         found.parent.children.splice(found.index, 1);
 
         const parent = found.parent;
-        const fp = findNodeWithParent(this.documentRoot, parent.id);
-        const grand = fp && fp.parent !== null ? fp.parent : null;
-        if (grand === null) {
-            recalculateGroupOriginOptionB(parent, 0, 0);
-        } else {
-            const o = getGroupContentWorldOrigin(this.documentRoot, grand.id, 0, 0);
-            if (o !== null) {
-                recalculateGroupOriginOptionB(parent, o.x, o.y);
-            }
-        }
+        this._recalculateGroupOptionBAfterChildChange(parent);
 
         this.selectedId = null;
         this.selectedKind = null;
@@ -447,10 +439,16 @@ class ObjectManagerClass {
         const grand = fp && fp.parent !== null ? fp.parent : null;
         if (grand === null) {
             recalculateGroupOriginOptionB(groupNode, 0, 0);
-        } else {
+        } else if (grand.nodeType === NodeType.GROUP) {
             const o = getGroupContentWorldOrigin(this.documentRoot, grand.id, 0, 0);
             if (o !== null) {
                 recalculateGroupOriginOptionB(groupNode, o.x, o.y);
+            }
+        } else if (grand.nodeType === NodeType.LEAF) {
+            const leafOffset = getAccumulatedOffsetForNode(this.documentRoot, grand.id, 0, 0);
+            const leafBounds = getShapeBoundingBox(grand.shape);
+            if (leafOffset !== null && leafBounds !== null) {
+                recalculateGroupOriginOptionB(groupNode, leafOffset.x + leafBounds.minX, leafOffset.y + leafBounds.minY);
             }
         }
     }

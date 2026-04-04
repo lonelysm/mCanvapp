@@ -649,6 +649,14 @@ export class HierarchyDetailUi {
                 this.renderer.requestRender();
             });
             container.appendChild(row);
+            if (Array.isArray(node.children) && node.children.length > 0) {
+                const sub = document.createElement("div");
+                sub.className = "treeGroup";
+                for (const ch of node.children) {
+                    this._appendTreeNode(sub, ch, depth + 1);
+                }
+                container.appendChild(sub);
+            }
             return;
         }
         if (node.nodeType === NodeType.WIDGET) {
