@@ -239,7 +239,7 @@ export class HierarchyDetailUi {
         });
 
         rootEl.addEventListener("dragover", (e) => {
-            const row = e.target.closest?.(".treeRow[data-drop-group-id]");
+            const row = e.target.closest?.(".treeRow[data-drop-parent-id]");
             if (row === null || row === undefined) {
                 return;
             }
@@ -250,7 +250,7 @@ export class HierarchyDetailUi {
         });
 
         rootEl.addEventListener("dragleave", (e) => {
-            const row = e.target.closest?.(".treeRow[data-drop-group-id]");
+            const row = e.target.closest?.(".treeRow[data-drop-parent-id]");
             if (row === null || row === undefined) {
                 return;
             }
@@ -262,7 +262,7 @@ export class HierarchyDetailUi {
         });
 
         rootEl.addEventListener("drop", (e) => {
-            const row = e.target.closest?.(".treeRow[data-drop-group-id]");
+            const row = e.target.closest?.(".treeRow[data-drop-parent-id]");
             if (row === null || row === undefined) {
                 return;
             }
@@ -277,7 +277,7 @@ export class HierarchyDetailUi {
                 return;
             }
             const nodeId = payload?.nodeId;
-            const targetGroupId = row.dataset.dropGroupId;
+            const targetGroupId = row.dataset.dropParentId;
             if (typeof nodeId !== "string" || typeof targetGroupId !== "string") {
                 return;
             }
@@ -620,6 +620,7 @@ export class HierarchyDetailUi {
             row.dataset.shapeId = node.id;
             row.setAttribute("role", "treeitem");
             row.setAttribute("tabindex", "0");
+            row.dataset.dropParentId = node.id;
             {
                 const fpLeaf = findNodeWithParent(this.objectManager.documentRoot, node.id);
                 const canDragLeaf = fpLeaf !== null && fpLeaf.parent !== null;
@@ -643,8 +644,7 @@ export class HierarchyDetailUi {
             row.addEventListener("click", () => {
                 this.objectManager.selectedId = node.id;
                 this.objectManager.selectedKind = "leaf";
-                this.objectManager.insertTargetGroupId =
-                    findNodeWithParent(this.objectManager.documentRoot, node.id)?.parent?.id ?? this.objectManager.documentRoot.id;
+                this.objectManager.insertTargetNodeId = node.id;
                 TopMenu.getInstance().setTool(EShapeKind.Select);
                 this.renderer.requestRender();
             });
@@ -690,7 +690,7 @@ export class HierarchyDetailUi {
             row.addEventListener("click", () => {
                 this.objectManager.selectedId = node.id;
                 this.objectManager.selectedKind = "widget";
-                this.objectManager.insertTargetGroupId =
+                this.objectManager.insertTargetNodeId =
                     findNodeWithParent(this.objectManager.documentRoot, node.id)?.parent?.id ?? this.objectManager.documentRoot.id;
                 TopMenu.getInstance().setTool(EShapeKind.Select);
                 this.renderer.requestRender();
@@ -705,7 +705,7 @@ export class HierarchyDetailUi {
             row.dataset.groupId = node.id;
             row.setAttribute("role", "treeitem");
             row.setAttribute("tabindex", "0");
-            row.dataset.dropGroupId = node.id;
+            row.dataset.dropParentId = node.id;
             {
                 const fpGrp = findNodeWithParent(this.objectManager.documentRoot, node.id);
                 const canDragGrp = fpGrp !== null && fpGrp.parent !== null;
@@ -729,7 +729,7 @@ export class HierarchyDetailUi {
             row.addEventListener("click", () => {
                 this.objectManager.selectedId = node.id;
                 this.objectManager.selectedKind = "group";
-                this.objectManager.insertTargetGroupId = node.id;
+                this.objectManager.insertTargetNodeId = node.id;
                 TopMenu.getInstance().setTool(EShapeKind.Select);
                 this.renderer.requestRender();
             });

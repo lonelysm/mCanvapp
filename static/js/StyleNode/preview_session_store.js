@@ -42,7 +42,7 @@ export function buildPreviewSnapshot(deps) {
         taskHistories,
         selectedId: objectManager.selectedId,
         selectedKind: objectManager.selectedKind,
-        insertTargetGroupId: objectManager.insertTargetGroupId,
+        insertTargetNodeId: objectManager.insertTargetNodeId,
         currentToolMode: objectManager.currentToolMode,
         viewOffset: { ...renderer.viewOffset },
         viewScale: renderer.viewScale,
@@ -68,12 +68,12 @@ export function applyPreviewSnapshot(snapshot, deps) {
     if (ver === SCHEMA_VERSION || ver === SCHEMA_VERSION_V2) {
         const rawDoc = nodeFromPlain(snapshot.document);
         objectManager.documentRoot = ensureDocumentRootTree(rawDoc !== null ? rawDoc : createDocumentRoot());
-        objectManager.insertTargetGroupId = snapshot.insertTargetGroupId ?? objectManager.documentRoot.id;
+        objectManager.insertTargetNodeId = snapshot.insertTargetNodeId ?? snapshot.insertTargetGroupId ?? objectManager.documentRoot.id;
         objectManager.selectedKind = snapshot.selectedKind ?? null;
     } else if (ver === SCHEMA_VERSION_V1) {
         const shapes = (snapshot.shapes ?? []).map(shapeFromPlain).filter((s) => s !== null);
         objectManager.documentRoot = wrapFlatShapesInSessionRoot(shapes);
-        objectManager.insertTargetGroupId = objectManager.documentRoot.id;
+        objectManager.insertTargetNodeId = objectManager.documentRoot.id;
         objectManager.selectedKind = snapshot.selectedId ? "leaf" : null;
     } else {
         console.warn("[preview_session_store] 알 수 없는 version=%s", ver);

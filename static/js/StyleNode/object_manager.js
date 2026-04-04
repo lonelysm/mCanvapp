@@ -20,6 +20,7 @@ import {
     getAccumulatedOffsetForLeaf,
     getAccumulatedOffsetForNode,
     getGroupContentWorldOrigin,
+    getNodeContentWorldOrigin,
     isStrictDescendantId,
     pickNodeAtWorld,
     recalculateGroupOriginOptionB,
@@ -78,7 +79,7 @@ class ObjectManagerClass {
         this.currentToolMode = EShapeKind.Select;
         this.selectedId = null;
         /** 새 도형이 들어갈 그룹 id (선택 없음: 문서 루트 → 작업 세션과 형제) */
-        this.insertTargetGroupId = this.documentRoot.id;
+        this.insertTargetNodeId = this.documentRoot.id;
 
         this.draftShape = null;
         this.draftPolygon = null;
@@ -167,7 +168,7 @@ class ObjectManagerClass {
      */
     setShapes(newShapes) {
         this.documentRoot = wrapFlatShapesInSessionRoot(Array.isArray(newShapes) ? newShapes : []);
-        this.insertTargetGroupId = this.documentRoot.id;
+        this.insertTargetNodeId = this.documentRoot.id;
     }
 
     /**
@@ -176,8 +177,8 @@ class ObjectManagerClass {
      */
     addShape(shape) {
         if (shape == null) return;
-        const gid = this.insertTargetGroupId ?? this.documentRoot.id;
-        const o = getGroupContentWorldOrigin(this.documentRoot, gid, 0, 0);
+        const gid = this.insertTargetNodeId ?? this.documentRoot.id;
+        const o = getNodeContentWorldOrigin(this.documentRoot, gid, 0, 0);
         if (o === null) {
             console.warn("[object_manager] addShape: 그룹 원점을 찾지 못함 id=%s", gid);
             return;
@@ -186,7 +187,7 @@ class ObjectManagerClass {
         const leaf = createLeafNode({ shape: localShape });
         if (leaf === null) return;
         const loc = findNodeWithParent(this.documentRoot, gid);
-        if (loc === null || loc.node.nodeType !== NodeType.GROUP) {
+        if (loc === null || (loc.node.nodeType !== NodeType.GROUP && loc.node.nodeType !== NodeType.LEAF)) {
             console.warn("[object_manager] addShape: 대상 그룹 없음");
             return;
         }
@@ -202,8 +203,8 @@ class ObjectManagerClass {
             console.warn("[object_manager] addLabelWidget: 좌표 없음");
             return;
         }
-        const gid = this.insertTargetGroupId ?? this.documentRoot.id;
-        const o = getGroupContentWorldOrigin(this.documentRoot, gid, 0, 0);
+        const gid = this.insertTargetNodeId ?? this.documentRoot.id;
+        const o = getNodeContentWorldOrigin(this.documentRoot, gid, 0, 0);
         if (o === null) {
             console.warn("[object_manager] addLabelWidget: 그룹 원점 없음 id=%s", gid);
             return;
@@ -218,7 +219,7 @@ class ObjectManagerClass {
         const node = createWidgetNode({ widget: w });
         if (node === null) return;
         const loc = findNodeWithParent(this.documentRoot, gid);
-        if (loc === null || loc.node.nodeType !== NodeType.GROUP) {
+        if (loc === null || (loc.node.nodeType !== NodeType.GROUP && loc.node.nodeType !== NodeType.LEAF)) {
             console.warn("[object_manager] addLabelWidget: 대상 그룹 없음");
             return;
         }
@@ -235,8 +236,8 @@ class ObjectManagerClass {
             console.warn("[object_manager] addWidget: widget 없음");
             return null;
         }
-        const gid = this.insertTargetGroupId ?? this.documentRoot.id;
-        const origin = getGroupContentWorldOrigin(this.documentRoot, gid, 0, 0);
+        const gid = this.insertTargetNodeId ?? this.documentRoot.id;
+        const origin = getNodeContentWorldOrigin(this.documentRoot, gid, 0, 0);
         if (origin === null) {
             console.warn("[object_manager] addWidget: 그룹 원점 없음 id=%s", gid);
             return null;
@@ -248,7 +249,7 @@ class ObjectManagerClass {
             return null;
         }
         const found = findNodeWithParent(this.documentRoot, gid);
-        if (found === null || found.node.nodeType !== NodeType.GROUP) {
+        if (found === null || (found.node.nodeType !== NodeType.GROUP && found.node.nodeType !== NodeType.LEAF)) {
             console.warn("[object_manager] addWidget: 대상 그룹 없음");
             return null;
         }
@@ -259,9 +260,9 @@ class ObjectManagerClass {
     /** 선택된 그룹(또는 루트) 아래에 빈 자식 그룹을 추가한다. */
     addEmptyChildGroup() {
         this.pushTaskHistory();
-        const gid = this.insertTargetGroupId ?? this.documentRoot.id;
+        const gid = this.insertTargetNodeId ?? this.documentRoot.id;
         const loc = findNodeWithParent(this.documentRoot, gid);
-        if (loc === null || loc.node.nodeType !== NodeType.GROUP) {
+        if (loc === null || (loc.node.nodeType !== NodeType.GROUP && loc.node.nodeType !== NodeType.LEAF)) {
             console.warn("[object_manager] addEmptyChildGroup: 대상 그룹 없음");
             return;
         }
@@ -269,7 +270,7 @@ class ObjectManagerClass {
         loc.node.children.push(g);
         this.selectedId = g.id;
         this.selectedKind = "group";
-        this.insertTargetGroupId = g.id;
+        this.insertTargetNodeId = g.id;
         this._renderer?.requestRender?.();
     }
 
@@ -313,7 +314,7 @@ class ObjectManagerClass {
     clear() {
         this.pushTaskHistory();
         this.documentRoot = createDocumentRoot();
-        this.insertTargetGroupId = this.documentRoot.id;
+        this.insertTargetNodeId = this.documentRoot.id;
     }
 
     /**
@@ -342,7 +343,7 @@ class ObjectManagerClass {
         this.draftShape = null;
         this.draftPolygon = null;
         this.draftWidget = null;
-        this.insertTargetGroupId = this.documentRoot.id;
+        this.insertTargetNodeId = this.documentRoot.id;
         this._renderer?.requestRender?.();
     }
 
@@ -382,7 +383,7 @@ class ObjectManagerClass {
             this.selectedKind = "leaf";
             const fp = findNodeWithParent(this.documentRoot, draft.id);
             if (fp && fp.parent) {
-                this.insertTargetGroupId = fp.parent.id;
+                this.insertTargetNodeId = fp.parent.id;
             }
             this.draftShape = null;
             this._renderer?.requestRender?.();
@@ -403,7 +404,7 @@ class ObjectManagerClass {
             this.selectedKind = "widget";
             const fp = findNodeWithParent(this.documentRoot, node.id);
             if (fp && fp.parent) {
-                this.insertTargetGroupId = fp.parent.id;
+                this.insertTargetNodeId = fp.parent.id;
             }
         }
         this._renderer?.requestRender?.();
@@ -423,7 +424,7 @@ class ObjectManagerClass {
 
         this.selectedId = null;
         this.selectedKind = null;
-        this.insertTargetGroupId = this.documentRoot.id;
+        this.insertTargetNodeId = this.documentRoot.id;
         this._renderer?.requestRender?.();
     }
 
@@ -475,16 +476,16 @@ class ObjectManagerClass {
             console.warn("[object_manager] reparentNodeToGroup: 이동 노드 없음 또는 문서 루트");
             return false;
         }
-        if (foundTarget === null || foundTarget.node.nodeType !== NodeType.GROUP) {
-            console.warn("[object_manager] reparentNodeToGroup: 대상이 그룹이 아님");
+        if (foundTarget === null || (foundTarget.node.nodeType !== NodeType.GROUP && foundTarget.node.nodeType !== NodeType.LEAF)) {
+            console.warn("[object_manager] reparentNodeToGroup: 대상이 부모 가능한 노드가 아님");
             return false;
         }
         const draggedNode = foundDrag.node;
         const oldParent = foundDrag.parent;
         const targetGroup = foundTarget.node;
 
-        if (draggedNode.nodeType === NodeType.GROUP && isStrictDescendantId(draggedNode, targetGroupId)) {
-            console.warn("[object_manager] reparentNodeToGroup: 자손 그룹으로는 이동 불가");
+        if ((draggedNode.nodeType === NodeType.GROUP || draggedNode.nodeType === NodeType.LEAF) && isStrictDescendantId(draggedNode, targetGroupId)) {
+            console.warn("[object_manager] reparentNodeToGroup: 자손 하위 노드로는 이동 불가");
             return false;
         }
 
@@ -528,7 +529,7 @@ class ObjectManagerClass {
         this._recalculateGroupOptionBAfterChildChange(oldParent);
 
         /** 이전 부모에서 옵션 B 재계산 후, 대상 그룹의 월드 콘텐츠 원점으로 로컬을 맞춘다 */
-        const oNew = getGroupContentWorldOrigin(this.documentRoot, targetGroupId, 0, 0);
+        const oNew = getNodeContentWorldOrigin(this.documentRoot, targetGroupId, 0, 0);
         if (oNew === null) {
             console.warn("[object_manager] reparentNodeToGroup: 새 부모 콘텐츠 원점 실패 — undo로 복구");
             this.restoreFromHistory();
@@ -545,7 +546,9 @@ class ObjectManagerClass {
         }
 
         targetGroup.children.push(draggedNode);
-        this._recalculateGroupOptionBAfterChildChange(targetGroup);
+        if (targetGroup.nodeType === NodeType.GROUP) {
+            this._recalculateGroupOptionBAfterChildChange(targetGroup);
+        }
 
         this.selectedId = draggedNodeId;
         this.selectedKind =
@@ -554,7 +557,7 @@ class ObjectManagerClass {
                 : draggedNode.nodeType === NodeType.GROUP
                   ? "group"
                   : "widget";
-        this.insertTargetGroupId = targetGroup.id;
+        this.insertTargetNodeId = targetGroup.id;
 
         this._renderer?.requestRender?.();
         console.info("[object_manager] reparentNodeToGroup 종료 성공");
@@ -577,7 +580,7 @@ class ObjectManagerClass {
             this.selectedKind = "leaf";
             const fp = findNodeWithParent(this.documentRoot, final.id);
             if (fp && fp.parent) {
-                this.insertTargetGroupId = fp.parent.id;
+                this.insertTargetNodeId = fp.parent.id;
             }
         }
         this.draftPolygon = null;
@@ -700,15 +703,15 @@ class ObjectManagerClass {
             if (hit === null) {
                 this.selectedId = null;
                 this.selectedKind = null;
-                this.insertTargetGroupId = this.documentRoot.id;
+                this.insertTargetNodeId = this.documentRoot.id;
             } else {
                 this.selectedId = hit.node.id;
                 this.selectedKind = hit.kind;
-                if (hit.kind === "group") {
-                    this.insertTargetGroupId = hit.node.id;
+                if (hit.kind === "group" || hit.kind === "leaf") {
+                    this.insertTargetNodeId = hit.node.id;
                 } else {
                     const fp = findNodeWithParent(this.documentRoot, hit.node.id);
-                    this.insertTargetGroupId = fp && fp.parent ? fp.parent.id : this.documentRoot.id;
+                    this.insertTargetNodeId = fp && fp.parent ? fp.parent.id : this.documentRoot.id;
                 }
             }
 

@@ -15,7 +15,7 @@ import {
 } from "./preview_session_store.js";
 import { HierarchyDetailUi } from "./hierarchy_detail_ui.js";
 import { loadStyleNodeDocumentFromServer, saveStyleNodeDocumentToServer } from "./style_node_server_io.js";
-import { flattenWidgetsInPaintOrder } from "./style_node_tree.js";
+import { findNodeWithParent, flattenWidgetsInPaintOrder } from "./style_node_tree.js";
 
 /** Create Style Node 페이지 사이드바 접이 패널(제목 클릭) 바인딩. 기본은 펼침(aria-expanded=true). */
 function bindPreviewSidePanelCollapsibles() {
@@ -113,6 +113,10 @@ class CanvaApp {
             div.addEventListener("click", () => {
                 this.objectManager.selectedId = it.id;
                 this.objectManager.selectedKind = it.kind === "widget" ? "widget" : "leaf";
+                this.objectManager.insertTargetNodeId =
+                    it.kind === "widget"
+                        ? (findNodeWithParent(this.objectManager.documentRoot, it.id)?.parent?.id ?? this.objectManager.documentRoot.id)
+                        : it.id;
                 TopMenu.getInstance().setTool(EShapeKind.Select);
                 this.renderer.requestRender();
             });

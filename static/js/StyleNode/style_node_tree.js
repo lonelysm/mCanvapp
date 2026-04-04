@@ -29,6 +29,33 @@ function getLeafChildLocalOrigin(leafNode) {
     return { x: bounds.minX, y: bounds.minY };
 }
 
+export function getNodeContentWorldOrigin(root, nodeId, ox = 0, oy = 0) {
+    if (root === null || root === undefined || nodeId === null || nodeId === undefined) return null;
+    if (root.nodeType === NodeType.GROUP) {
+        const gx = ox + root.transform.x;
+        const gy = oy + root.transform.y;
+        if (root.id === nodeId) {
+            return { x: gx, y: gy };
+        }
+        for (const ch of root.children) {
+            const r = getNodeContentWorldOrigin(ch, nodeId, gx, gy);
+            if (r !== null) return r;
+        }
+        return null;
+    }
+    if (root.nodeType === NodeType.LEAF) {
+        const childOrigin = getLeafChildLocalOrigin(root);
+        if (root.id === nodeId) {
+            return { x: ox + childOrigin.x, y: oy + childOrigin.y };
+        }
+        for (const ch of getNodeChildren(root)) {
+            const r = getNodeContentWorldOrigin(ch, nodeId, ox + childOrigin.x, oy + childOrigin.y);
+            if (r !== null) return r;
+        }
+    }
+    return null;
+}
+
 /**
  * 빈 작업 세션 그룹을 만든다. 문서 루트의 자식으로 두거나 단독(구버전)으로 쓸 수 있다.
  */
@@ -141,10 +168,10 @@ export function isStrictDescendantId(rootSubtree, needleId) {
     if (rootSubtree === null || rootSubtree === undefined || needleId === null || needleId === undefined) {
         return false;
     }
-    if (rootSubtree.nodeType !== NodeType.GROUP) {
+    if (rootSubtree.nodeType !== NodeType.GROUP && rootSubtree.nodeType !== NodeType.LEAF) {
         return false;
     }
-    for (const ch of rootSubtree.children) {
+    for (const ch of getNodeChildren(rootSubtree)) {
         if (ch.id === needleId) {
             return true;
         }
