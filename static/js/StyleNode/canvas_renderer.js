@@ -223,7 +223,7 @@ class CanvasRenderer {
         return devicePixelRatio;
     }
 
-    // state: documentRoot, displayShapes, draftShape, draftPolygon, selectedId, selectedKind, pointerPos, currentToolMode
+    // state: documentRoot, displayShapes, draftShape, draftPolygon, draftWidget, selectedId, selectedKind, pointerPos, currentToolMode
     render(editorState) {
         const displayShapes = editorState.displayShapes ?? [];
         const documentRoot = editorState.documentRoot ?? null;
@@ -258,6 +258,10 @@ class CanvasRenderer {
         }
         if (editorState.draftPolygon !== null) {
             this._drawShape(editorState.draftPolygon);
+        }
+        if (editorState.draftWidget !== null) {
+            editorState.draftWidget.drawShape(this.screenCtx);
+            editorState.draftWidget.drawSelectionOutline(this.screenCtx);
         }
 
         const selId = editorState.selectedId ?? null;

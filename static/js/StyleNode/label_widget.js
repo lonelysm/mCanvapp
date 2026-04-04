@@ -21,6 +21,34 @@ function getMeasureContext() {
 }
 
 /**
+ * 라벨 텍스트를 특정 폰트 크기로 측정한다.
+ * @param {string} text
+ * @param {number} fontSize
+ * @param {string} fontFamily
+ * @returns {{ width: number, height: number }}
+ */
+function measureLabelTextSize(text, fontSize, fontFamily) {
+    const safeText = String(text ?? "");
+    const safeFontSize = Math.max(1, Number(fontSize) || 1);
+    const safeFontFamily = typeof fontFamily === "string" && fontFamily.trim() !== "" ? fontFamily : "system-ui, sans-serif";
+    const ctx = getMeasureContext();
+    if (ctx === null) {
+        return {
+            width: Math.max(safeFontSize, safeText.length * safeFontSize * 0.55),
+            height: safeFontSize * 1.25,
+        };
+    }
+    ctx.font = `${safeFontSize}px ${safeFontFamily}`;
+    const metrics = ctx.measureText(safeText);
+    const ascent = metrics.actualBoundingBoxAscent ?? safeFontSize * 0.72;
+    const descent = metrics.actualBoundingBoxDescent ?? safeFontSize * 0.22;
+    return {
+        width: Math.max(metrics.width, safeFontSize * 0.5),
+        height: ascent + descent,
+    };
+}
+
+/**
  * 라벨 위젯의 그룹 로컬 AABB (textBaseline top 기준 position)
  * @param {LabelWidget} w
  * @returns {{ minX: number, minY: number, maxX: number, maxY: number } | null}
@@ -29,27 +57,13 @@ export function getLabelWidgetBoundingBox(w) {
     if (w === null || w === undefined || w.widgetKind !== WidgetKind.LABEL) {
         return null;
     }
-    const ctx = getMeasureContext();
     const fs = Math.max(8, w.style.fontSize);
-    if (ctx === null) {
-        const estW = Math.max(fs, w.text.length * fs * 0.55);
-        const estH = fs * 1.25;
-        return {
-            minX: w.position.x,
-            minY: w.position.y,
-            maxX: w.position.x + estW,
-            maxY: w.position.y + estH,
-        };
-    }
-    ctx.font = `${fs}px ${w.style.fontFamily}`;
-    const m = ctx.measureText(w.text);
-    const ascent = m.actualBoundingBoxAscent ?? fs * 0.72;
-    const descent = m.actualBoundingBoxDescent ?? fs * 0.22;
+    const size = measureLabelTextSize(w.text, fs, w.style.fontFamily);
     return {
         minX: w.position.x,
         minY: w.position.y,
-        maxX: w.position.x + m.width,
-        maxY: w.position.y + ascent + descent,
+        maxX: w.position.x + size.width,
+        maxY: w.position.y + size.height,
     };
 }
 
@@ -98,6 +112,29 @@ export class LabelWidget {
         c.position.x += dx;
         c.position.y += dy;
         return c;
+    }
+
+    /**
+     * 드래그한 사각 영역에 맞춰 라벨 위치와 폰트 크기를 갱신한다.
+     * @param {{ x: number, y: number }} anchorPoint
+     * @param {{ x: number, y: number }} currentPoint
+     */
+    updateDraftLayout(anchorPoint, currentPoint) {
+        if (anchorPoint === null || anchorPoint === undefined || currentPoint === null || currentPoint === undefined) {
+            return;
+        }
+        const minX = Math.min(anchorPoint.x, currentPoint.x);
+        const minY = Math.min(anchorPoint.y, currentPoint.y);
+        const dragWidth = Math.max(Math.abs(currentPoint.x - anchorPoint.x), 12);
+        const dragHeight = Math.max(Math.abs(currentPoint.y - anchorPoint.y), 12);
+        const baseMeasure = measureLabelTextSize(this.text, 100, this.style.fontFamily);
+        const widthPerFont = Math.max(baseMeasure.width / 100, 0.01);
+        const heightPerFont = Math.max(baseMeasure.height / 100, 0.01);
+        const fontSizeFromWidth = dragWidth / widthPerFont;
+        const fontSizeFromHeight = dragHeight / heightPerFont;
+        this.position.x = minX;
+        this.position.y = minY;
+        this.style.fontSize = Util.clamp(Math.min(fontSizeFromWidth, fontSizeFromHeight), 6, 200);
     }
 
     /**

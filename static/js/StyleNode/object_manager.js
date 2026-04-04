@@ -81,6 +81,7 @@ class ObjectManagerClass {
 
         this.draftShape = null;
         this.draftPolygon = null;
+        this.draftWidget = null;
         this.dragShapesSnapshot = null;
         this.dragCopiedOriginal = null;
 
@@ -145,6 +146,7 @@ class ObjectManagerClass {
             selectedKind: this.selectedKind,
             draftShape: this.draftShape,
             draftPolygon: this.draftPolygon,
+            draftWidget: this.draftWidget,
             pointerPos: this._lastPointerWorld ?? null,
         };
     }
@@ -220,6 +222,37 @@ class ObjectManagerClass {
             return;
         }
         loc.node.children.push(node);
+    }
+
+    /**
+     * 월드 좌표 기준 위젯을 현재 타깃 그룹 로컬 좌표로 추가한다.
+     * @param {import("./label_widget.js").LabelWidget} widget
+     * @returns {object | null}
+     */
+    addWidget(widget) {
+        if (widget === null || widget === undefined) {
+            console.warn("[object_manager] addWidget: widget 없음");
+            return null;
+        }
+        const gid = this.insertTargetGroupId ?? this.documentRoot.id;
+        const origin = getGroupContentWorldOrigin(this.documentRoot, gid, 0, 0);
+        if (origin === null) {
+            console.warn("[object_manager] addWidget: 그룹 원점 없음 id=%s", gid);
+            return null;
+        }
+        const localWidget = widget.translate(-origin.x, -origin.y);
+        const node = createWidgetNode({ widget: localWidget });
+        if (node === null) {
+            console.warn("[object_manager] addWidget: widget node 생성 실패");
+            return null;
+        }
+        const found = findNodeWithParent(this.documentRoot, gid);
+        if (found === null || found.node.nodeType !== NodeType.GROUP) {
+            console.warn("[object_manager] addWidget: 대상 그룹 없음");
+            return null;
+        }
+        found.node.children.push(node);
+        return node;
     }
 
     /** 선택된 그룹(또는 루트) 아래에 빈 자식 그룹을 추가한다. */
@@ -307,6 +340,7 @@ class ObjectManagerClass {
         this.selectedKind = null;
         this.draftShape = null;
         this.draftPolygon = null;
+        this.draftWidget = null;
         this.insertTargetGroupId = this.documentRoot.id;
         this._renderer?.requestRender?.();
     }
@@ -317,6 +351,7 @@ class ObjectManagerClass {
         this.selectedKind = null;
         this.draftShape = null;
         this.draftPolygon = null;
+        this.draftWidget = null;
         this._renderer?.requestRender?.();
     }
 
@@ -351,6 +386,26 @@ class ObjectManagerClass {
             this.draftShape = null;
             this._renderer?.requestRender?.();
         }
+    }
+
+    /** 드래프트 라벨 위젯을 문서 트리에 반영한다. */
+    addDraftWidget() {
+        const draft = this.draftWidget ?? null;
+        if (draft === null) {
+            return;
+        }
+        this.pushTaskHistory();
+        const node = this.addWidget(draft);
+        this.draftWidget = null;
+        if (node !== null) {
+            this.selectedId = node.id;
+            this.selectedKind = "widget";
+            const fp = findNodeWithParent(this.documentRoot, node.id);
+            if (fp && fp.parent) {
+                this.insertTargetGroupId = fp.parent.id;
+            }
+        }
+        this._renderer?.requestRender?.();
     }
 
     deleteSelected() {
@@ -555,21 +610,8 @@ class ObjectManagerClass {
         }
 
         if (this.currentToolMode === EShapeKind.Label) {
-            console.info("[object_manager] 라벨 위젯 추가 pointer=(%s,%s)", pointerDownPoint.x, pointerDownPoint.y);
-            this.pushTaskHistory();
-            this.addLabelWidget(pointerDownPoint);
-            const wNodes = flattenWidgetsInPaintOrder(this.documentRoot);
-            const lastW = wNodes[wNodes.length - 1];
-            if (lastW !== null && lastW !== undefined) {
-                this.selectedId = lastW.id;
-                this.selectedKind = "widget";
-                const fp = findNodeWithParent(this.documentRoot, lastW.id);
-                if (fp && fp.parent) {
-                    this.insertTargetGroupId = fp.parent.id;
-                }
-            }
+            this.draftWidget = this._createDraftWidget(pointerDownPoint);
             this._renderer?.requestRender?.();
-            console.info("[object_manager] 라벨 위젯 추가 완료 id=%s", this.selectedId);
             return;
         }
 
@@ -628,6 +670,26 @@ class ObjectManagerClass {
         return null;
     }
 
+    /**
+     * 라벨 위젯 드래프트를 만든다.
+     * @param {{ x: number, y: number }} pointerPoint
+     * @returns {import("./label_widget.js").LabelWidget | null}
+     */
+    _createDraftWidget(pointerPoint) {
+        if (pointerPoint === null || pointerPoint === undefined) {
+            return null;
+        }
+        const widgetCount = flattenWidgetsInPaintOrder(this.documentRoot).length;
+        const draftWidget = new LabelWidget({
+            name: `\uB77C\uBCA8${widgetCount + 1}`,
+            position: { x: pointerPoint.x, y: pointerPoint.y },
+            text: "Contents here",
+            style: { color: "#e6edf3", fontSize: 14, fontFamily: "system-ui, sans-serif" },
+        });
+        draftWidget.updateDraftLayout(pointerPoint, pointerPoint);
+        return draftWidget;
+    }
+
     _onPointerDown(e) {
         if (!this._renderer) return;
 
@@ -679,7 +741,7 @@ class ObjectManagerClass {
         }
 
         this._createShape(worldPoint);
-        this._isDraggingOrDrafting = this.draftShape !== null || this.draftPolygon !== null;
+        this._isDraggingOrDrafting = this.draftShape !== null || this.draftPolygon !== null || this.draftWidget !== null;
         if (this._isDraggingOrDrafting) {
             e.stopImmediatePropagation();
             this._canvas.setPointerCapture(e.pointerId);
@@ -725,6 +787,8 @@ class ObjectManagerClass {
                 }
             } else if (this.draftShape !== null) {
                 this.draftShape.updateDraftShape(worldPoint);
+            } else if (this.draftWidget !== null && this._pointerDownPos !== null) {
+                this.draftWidget.updateDraftLayout(this._pointerDownPos, worldPoint);
             }
             this._renderer.requestRender();
             return;
@@ -751,7 +815,11 @@ class ObjectManagerClass {
                 this.dragShapesSnapshot = null;
                 this.dragCopiedOriginal = new Map();
             } else {
-                this.addDraftShape();
+                if (this.draftWidget !== null) {
+                    this.addDraftWidget();
+                } else {
+                    this.addDraftShape();
+                }
             }
 
             this._renderer?.endPan();
