@@ -1,6 +1,7 @@
 // StyleNode 계층: 그룹(중첩) + 리프(도형) + 위젯(라벨 등). 기하는 부모 그룹 로컬 좌표.
 
 import { Util } from "../util.js";
+import { EShapeKind } from "./const.js";
 import { getLabelWidgetBoundingBox } from "./label_widget.js";
 import { getShapeBoundingBox } from "./shape_bounds.js";
 
@@ -27,6 +28,30 @@ function getLeafChildLocalOrigin(leafNode) {
         return { x: 0, y: 0 };
     }
     return { x: bounds.minX, y: bounds.minY };
+}
+
+/**
+ * 라벨의 부모가 사각형 리프일 때 자식 기준 부모 로컬 박스를 계산한다.
+ * @param {object | null | undefined} parentNode
+ * @returns {{ x: number, y: number, width: number, height: number } | null}
+ */
+export function getWidgetParentLocalBounds(parentNode) {
+    if (parentNode === null || parentNode === undefined || parentNode.nodeType !== NodeType.LEAF) {
+        return null;
+    }
+    if (parentNode.shape?.kind !== EShapeKind.Rect) {
+        return null;
+    }
+    const bounds = getShapeBoundingBox(parentNode.shape);
+    if (bounds === null) {
+        return null;
+    }
+    return {
+        x: 0,
+        y: 0,
+        width: Math.max(1, bounds.maxX - bounds.minX),
+        height: Math.max(1, bounds.maxY - bounds.minY),
+    };
 }
 
 export function getNodeContentWorldOrigin(root, nodeId, ox = 0, oy = 0) {
@@ -266,10 +291,10 @@ export function flattenWidgetsInPaintOrder(root) {
     return out;
 }
 
-function getNodeWorldBounds(node, ox, oy) {
+function getNodeWorldBounds(node, ox, oy, parentNode = null) {
     if (node === null || node === undefined) return null;
     if (node.nodeType === NodeType.WIDGET) {
-        const widgetBounds = getLabelWidgetBoundingBox(node.widget);
+        const widgetBounds = getLabelWidgetBoundingBox(node.widget, getWidgetParentLocalBounds(parentNode));
         if (widgetBounds === null) return null;
         return {
             minX: widgetBounds.minX + ox,
@@ -286,7 +311,7 @@ function getNodeWorldBounds(node, ox, oy) {
         let maxY = shapeBounds !== null && shapeBounds !== undefined ? shapeBounds.maxY + oy : -Infinity;
         const childOrigin = getLeafChildLocalOrigin(node);
         for (const ch of getNodeChildren(node)) {
-            const childBounds = getNodeWorldBounds(ch, ox + childOrigin.x, oy + childOrigin.y);
+            const childBounds = getNodeWorldBounds(ch, ox + childOrigin.x, oy + childOrigin.y, node);
             if (childBounds === null) continue;
             minX = Math.min(minX, childBounds.minX);
             minY = Math.min(minY, childBounds.minY);
@@ -324,7 +349,7 @@ export function getGroupWorldBounds(group, ox, oy) {
     };
 
     for (const ch of group.children) {
-        merge(getNodeWorldBounds(ch, gx, gy));
+        merge(getNodeWorldBounds(ch, gx, gy, group));
     }
 
     if (!Number.isFinite(minX)) {
@@ -343,12 +368,12 @@ function pointInBounds(px, py, b) {
  * @param {object} documentRoot — 최상위 세션 루트(참조 비교)
  * @returns {{ kind: "leaf" | "widget" | "group", node: object } | null}
  */
-export function pickNodeAtWorld(worldX, worldY, node, ox, oy, documentRoot) {
+export function pickNodeAtWorld(worldX, worldY, node, ox, oy, documentRoot, parentNode = null) {
     if (node === null || node === undefined) return null;
     if (node.nodeType === NodeType.WIDGET) {
         const lx = worldX - ox;
         const ly = worldY - oy;
-        if (node.widget.hitTestLocal({ x: lx, y: ly })) {
+        if (node.widget.hitTestLocal({ x: lx, y: ly }, undefined, getWidgetParentLocalBounds(parentNode))) {
             return { kind: "widget", node };
         }
         return null;
@@ -357,7 +382,7 @@ export function pickNodeAtWorld(worldX, worldY, node, ox, oy, documentRoot) {
         const childOrigin = getLeafChildLocalOrigin(node);
         const children = getNodeChildren(node);
         for (let i = children.length - 1; i >= 0; i--) {
-            const hitChild = pickNodeAtWorld(worldX, worldY, children[i], ox + childOrigin.x, oy + childOrigin.y, documentRoot);
+            const hitChild = pickNodeAtWorld(worldX, worldY, children[i], ox + childOrigin.x, oy + childOrigin.y, documentRoot, node);
             if (hitChild !== null) return hitChild;
         }
         const lx = worldX - ox;
@@ -377,7 +402,7 @@ export function pickNodeAtWorld(worldX, worldY, node, ox, oy, documentRoot) {
 
     for (let i = node.children.length - 1; i >= 0; i--) {
         const ch = node.children[i];
-        const hit = pickNodeAtWorld(worldX, worldY, ch, gx, gy, documentRoot);
+        const hit = pickNodeAtWorld(worldX, worldY, ch, gx, gy, documentRoot, node);
         if (hit !== null) return hit;
     }
 

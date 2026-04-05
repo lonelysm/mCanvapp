@@ -1,0 +1,6 @@
+{
+    "terminal.integrated.cwd": "${workspaceFolder}",
+    // 잘 안되는듯
+    "python.defaultInterpreterPath": "C:\\Users\\happy\\anaconda3\\envs\\py64\\python.exe",
+    "python.terminal.activateEnvironment": true
+}

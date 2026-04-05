@@ -3,7 +3,7 @@
 import { EShapeKind } from "./const.js";
 import { Util } from "../util.js";
 import { TopMenu } from "./top_menu.js";
-import { getLabelWidgetBoundingBox } from "./label_widget.js";
+import { getLabelWidgetBoundingBox, resolveLabelWidgetLayout } from "./label_widget.js";
 import { getShapeBoundingBox } from "./shape_bounds.js";
 import {
     NodeType,
@@ -14,6 +14,7 @@ import {
     getAccumulatedOffsetForLeaf,
     getAccumulatedOffsetForNode,
     getGroupWorldContentBoundsTopLeft,
+    getWidgetParentLocalBounds,
 } from "./style_node_tree.js";
 
 /** 문서 전체에서 첫 리프의 월드 AABB 좌상단 */
@@ -71,8 +72,9 @@ function getFirstDrawableWorldTopLeftDocument(documentRoot) {
     const widgets = flattenWidgetsInPaintOrder(documentRoot);
     if (widgets.length === 0) return null;
     const wn = widgets[0];
+    const fp = findNodeWithParent(documentRoot, wn.id);
     const off = getAccumulatedOffsetForNode(documentRoot, wn.id, 0, 0);
-    const b = getLabelWidgetBoundingBox(wn.widget);
+    const b = getLabelWidgetBoundingBox(wn.widget, getWidgetParentLocalBounds(fp?.parent));
     if (b === null || off === null) return null;
     return { x: b.minX + off.x, y: b.minY + off.y };
 }
@@ -88,7 +90,7 @@ function getFirstDrawableWorldTopLeftInGroup(documentRoot, groupNode) {
         }
         if (ch.nodeType === NodeType.WIDGET) {
             const off = getAccumulatedOffsetForNode(documentRoot, ch.id, 0, 0);
-            const b = getLabelWidgetBoundingBox(ch.widget);
+            const b = getLabelWidgetBoundingBox(ch.widget, getWidgetParentLocalBounds(groupNode));
             if (b !== null && off !== null) return { x: b.minX + off.x, y: b.minY + off.y };
         }
     }
@@ -112,7 +114,7 @@ function getWidgetWorldTopLeft(documentRoot, widgetNodeId) {
     const fp = findNodeWithParent(documentRoot, widgetNodeId);
     if (fp === null || fp.node.nodeType !== NodeType.WIDGET) return null;
     const off = getAccumulatedOffsetForNode(documentRoot, widgetNodeId, 0, 0);
-    const b = getLabelWidgetBoundingBox(fp.node.widget);
+    const b = getLabelWidgetBoundingBox(fp.node.widget, getWidgetParentLocalBounds(fp.parent));
     if (b === null || off === null) return null;
     return { x: b.minX + off.x, y: b.minY + off.y };
 }
@@ -146,6 +148,19 @@ function buildRgbaFromHexOpacity(hex, opacityPct) {
 }
 
 /**
+ * 디테일 패널 숫자 표시를 소수점 둘째 자리까지 맞춘다.
+ * @param {number} value
+ * @returns {string}
+ */
+function formatDetailNumber(value) {
+    const safeValue = Number(value);
+    if (!Number.isFinite(safeValue)) {
+        return "0";
+    }
+    return String(Math.round(safeValue * 100) / 100);
+}
+
+/**
  * 계층 트리·디테일 패널을 objectManager 선택과 동기화한다.
  */
 export class HierarchyDetailUi {
@@ -167,6 +182,12 @@ export class HierarchyDetailUi {
         this.detailWidgetText = document.getElementById("detailWidgetText");
         this.detailWidgetPosX = document.getElementById("detailWidgetPosX");
         this.detailWidgetPosY = document.getElementById("detailWidgetPosY");
+        this.detailWidgetOffsetX = document.getElementById("detailWidgetOffsetX");
+        this.detailWidgetOffsetY = document.getElementById("detailWidgetOffsetY");
+        this.detailWidgetPaddingTop = document.getElementById("detailWidgetPaddingTop");
+        this.detailWidgetPaddingRight = document.getElementById("detailWidgetPaddingRight");
+        this.detailWidgetPaddingBottom = document.getElementById("detailWidgetPaddingBottom");
+        this.detailWidgetPaddingLeft = document.getElementById("detailWidgetPaddingLeft");
         this.detailWidgetColor = document.getElementById("detailWidgetColor");
         this.detailWidgetFontSize = document.getElementById("detailWidgetFontSize");
         this.detailGroupBlock = document.getElementById("detailGroupBlock");
@@ -307,6 +328,15 @@ export class HierarchyDetailUi {
         return Number.isFinite(v) ? v : fallback;
     }
 
+    /**
+     * 선택한 라벨의 부모가 사각형이면 자식 기준 부모 로컬 박스를 구한다.
+     * @param {object | null | undefined} parentNode
+     * @returns {{ x: number, y: number, width: number, height: number } | null}
+     */
+    _getWidgetParentLocalBounds(parentNode) {
+        return getWidgetParentLocalBounds(parentNode);
+    }
+
     /** 기하 패널 전부 숨김 후 해당 패널만 표시 */
     _setVisibleGeomPanel(kind) {
         const panels = [
@@ -354,30 +384,30 @@ export class HierarchyDetailUi {
     _fillLeafGeometryFields(shape) {
         const k = shape.kind;
         if (k === EShapeKind.POINT) {
-            if (this.detailGeomPointX !== null) this.detailGeomPointX.value = String(shape.position.x);
-            if (this.detailGeomPointY !== null) this.detailGeomPointY.value = String(shape.position.y);
-            if (this.detailGeomPointR !== null) this.detailGeomPointR.value = String(shape.radius);
+            if (this.detailGeomPointX !== null) this.detailGeomPointX.value = formatDetailNumber(shape.position.x);
+            if (this.detailGeomPointY !== null) this.detailGeomPointY.value = formatDetailNumber(shape.position.y);
+            if (this.detailGeomPointR !== null) this.detailGeomPointR.value = formatDetailNumber(shape.radius);
             return;
         }
         if (k === EShapeKind.LINE) {
-            if (this.detailGeomLineSx !== null) this.detailGeomLineSx.value = String(shape.start.x);
-            if (this.detailGeomLineSy !== null) this.detailGeomLineSy.value = String(shape.start.y);
-            if (this.detailGeomLineEx !== null) this.detailGeomLineEx.value = String(shape.end.x);
-            if (this.detailGeomLineEy !== null) this.detailGeomLineEy.value = String(shape.end.y);
+            if (this.detailGeomLineSx !== null) this.detailGeomLineSx.value = formatDetailNumber(shape.start.x);
+            if (this.detailGeomLineSy !== null) this.detailGeomLineSy.value = formatDetailNumber(shape.start.y);
+            if (this.detailGeomLineEx !== null) this.detailGeomLineEx.value = formatDetailNumber(shape.end.x);
+            if (this.detailGeomLineEy !== null) this.detailGeomLineEy.value = formatDetailNumber(shape.end.y);
             return;
         }
         if (k === EShapeKind.CIRCLE) {
-            if (this.detailGeomCircleCx !== null) this.detailGeomCircleCx.value = String(shape.center.x);
-            if (this.detailGeomCircleCy !== null) this.detailGeomCircleCy.value = String(shape.center.y);
-            if (this.detailGeomCircleR !== null) this.detailGeomCircleR.value = String(shape.radius);
+            if (this.detailGeomCircleCx !== null) this.detailGeomCircleCx.value = formatDetailNumber(shape.center.x);
+            if (this.detailGeomCircleCy !== null) this.detailGeomCircleCy.value = formatDetailNumber(shape.center.y);
+            if (this.detailGeomCircleR !== null) this.detailGeomCircleR.value = formatDetailNumber(shape.radius);
             return;
         }
         if (k === EShapeKind.RECT) {
             const rect = Util.rectFromPoints(shape.start, shape.end);
-            if (this.detailGeomRectX !== null) this.detailGeomRectX.value = String(rect.x);
-            if (this.detailGeomRectY !== null) this.detailGeomRectY.value = String(rect.y);
-            if (this.detailGeomRectW !== null) this.detailGeomRectW.value = String(rect.w);
-            if (this.detailGeomRectH !== null) this.detailGeomRectH.value = String(rect.h);
+            if (this.detailGeomRectX !== null) this.detailGeomRectX.value = formatDetailNumber(rect.x);
+            if (this.detailGeomRectY !== null) this.detailGeomRectY.value = formatDetailNumber(rect.y);
+            if (this.detailGeomRectW !== null) this.detailGeomRectW.value = formatDetailNumber(rect.w);
+            if (this.detailGeomRectH !== null) this.detailGeomRectH.value = formatDetailNumber(rect.h);
         }
     }
 
@@ -434,6 +464,12 @@ export class HierarchyDetailUi {
         this.detailWidgetText?.addEventListener("change", onWidgetChange);
         this.detailWidgetPosX?.addEventListener("change", onWidgetChange);
         this.detailWidgetPosY?.addEventListener("change", onWidgetChange);
+        this.detailWidgetOffsetX?.addEventListener("change", onWidgetChange);
+        this.detailWidgetOffsetY?.addEventListener("change", onWidgetChange);
+        this.detailWidgetPaddingTop?.addEventListener("change", onWidgetChange);
+        this.detailWidgetPaddingRight?.addEventListener("change", onWidgetChange);
+        this.detailWidgetPaddingBottom?.addEventListener("change", onWidgetChange);
+        this.detailWidgetPaddingLeft?.addEventListener("change", onWidgetChange);
         this.detailWidgetColor?.addEventListener("change", onWidgetChange);
         this.detailWidgetFontSize?.addEventListener("change", onWidgetChange);
     }
@@ -447,20 +483,36 @@ export class HierarchyDetailUi {
         const n = found?.node ?? null;
         if (n === null || n.nodeType !== NodeType.WIDGET) return;
         const w = n.widget;
+        const parentLocalBounds = this._getWidgetParentLocalBounds(found?.parent);
 
         this.objectManager.pushTaskHistory();
 
         const text = this.detailWidgetText?.value ?? w.text;
         const px = this._readNumber(this.detailWidgetPosX, w.position.x);
         const py = this._readNumber(this.detailWidgetPosY, w.position.y);
+        const offsetX = this._readNumber(this.detailWidgetOffsetX, w.offset?.x ?? 0);
+        const offsetY = this._readNumber(this.detailWidgetOffsetY, w.offset?.y ?? 0);
+        const paddingTop = this._readNumber(this.detailWidgetPaddingTop, w.padding?.top ?? 2);
+        const paddingRight = this._readNumber(this.detailWidgetPaddingRight, w.padding?.right ?? 2);
+        const paddingBottom = this._readNumber(this.detailWidgetPaddingBottom, w.padding?.bottom ?? 2);
+        const paddingLeft = this._readNumber(this.detailWidgetPaddingLeft, w.padding?.left ?? 2);
         const col = this.detailWidgetColor?.value ?? "#e6edf3";
         const fs = Util.clamp(this._readNumber(this.detailWidgetFontSize, w.style.fontSize), 6, 200);
 
         w.text = String(text);
         w.position.x = px;
         w.position.y = py;
+        w.offset.x = offsetX;
+        w.offset.y = offsetY;
+        w.padding.top = paddingTop;
+        w.padding.right = paddingRight;
+        w.padding.bottom = paddingBottom;
+        w.padding.left = paddingLeft;
         w.style.color = col.length >= 7 ? col : w.style.color;
         w.style.fontSize = fs;
+        if (parentLocalBounds !== null) {
+            w.syncResolvedLayoutFromParent(parentLocalBounds);
+        }
 
         this.renderer.requestRender();
         window.dispatchEvent(new CustomEvent("styleNode:detailUpdated"));
@@ -878,12 +930,20 @@ export class HierarchyDetailUi {
                 }
             }
             if (!editingForm) {
+                const parentLocalBounds = this._getWidgetParentLocalBounds(found?.parent);
+                const resolved = resolveLabelWidgetLayout(w, parentLocalBounds);
                 if (this.detailWidgetText !== null) this.detailWidgetText.value = w.text;
-                if (this.detailWidgetPosX !== null) this.detailWidgetPosX.value = String(w.position.x);
-                if (this.detailWidgetPosY !== null) this.detailWidgetPosY.value = String(w.position.y);
+                if (this.detailWidgetPosX !== null) this.detailWidgetPosX.value = String(Math.round((parentLocalBounds !== null ? resolved.x : w.position.x) * 100) / 100);
+                if (this.detailWidgetPosY !== null) this.detailWidgetPosY.value = String(Math.round((parentLocalBounds !== null ? resolved.y : w.position.y) * 100) / 100);
+                if (this.detailWidgetOffsetX !== null) this.detailWidgetOffsetX.value = formatDetailNumber(w.offset?.x ?? 0);
+                if (this.detailWidgetOffsetY !== null) this.detailWidgetOffsetY.value = formatDetailNumber(w.offset?.y ?? 0);
+                if (this.detailWidgetPaddingTop !== null) this.detailWidgetPaddingTop.value = formatDetailNumber(w.padding?.top ?? 2);
+                if (this.detailWidgetPaddingRight !== null) this.detailWidgetPaddingRight.value = formatDetailNumber(w.padding?.right ?? 2);
+                if (this.detailWidgetPaddingBottom !== null) this.detailWidgetPaddingBottom.value = formatDetailNumber(w.padding?.bottom ?? 2);
+                if (this.detailWidgetPaddingLeft !== null) this.detailWidgetPaddingLeft.value = formatDetailNumber(w.padding?.left ?? 2);
                 const col = typeof w.style.color === "string" && w.style.color.startsWith("#") ? w.style.color : "#e6edf3";
                 if (this.detailWidgetColor !== null) this.detailWidgetColor.value = col.length >= 7 ? col.slice(0, 7) : "#e6edf3";
-                if (this.detailWidgetFontSize !== null) this.detailWidgetFontSize.value = String(Math.round(w.style.fontSize));
+                if (this.detailWidgetFontSize !== null) this.detailWidgetFontSize.value = String(Math.round(parentLocalBounds !== null ? resolved.fontSize : w.style.fontSize));
             }
         }
     }

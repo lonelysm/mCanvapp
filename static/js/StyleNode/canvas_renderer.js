@@ -7,7 +7,14 @@ import { EShapeKind } from "./const.js";
 import { Util } from "../util.js";
 import { TopMenu } from "./top_menu.js";
 import { ObjectManagerClass } from "./object_manager.js";
-import { NodeType, findNodeWithParent, getAccumulatedOffsetForNode, getAccumulatedOffsetForLeaf, getGroupWorldBounds } from "./style_node_tree.js";
+import {
+    NodeType,
+    findNodeWithParent,
+    getAccumulatedOffsetForNode,
+    getAccumulatedOffsetForLeaf,
+    getGroupWorldBounds,
+    getWidgetParentLocalBounds,
+} from "./style_node_tree.js";
 import { getShapeBoundingBox } from "./shape_bounds.js";
 
 class CanvasRenderer {
@@ -279,9 +286,19 @@ class CanvasRenderer {
                 const fp = findNodeWithParent(documentRoot, selId);
                 if (fp !== null && fp.node.nodeType === NodeType.WIDGET) {
                     const off = getAccumulatedOffsetForNode(documentRoot, selId, 0, 0);
-                    const w = fp.node.widget;
-                    const worldW = off !== null ? w.translate(off.x, off.y) : w;
-                    worldW.drawSelectionOutline(this.screenCtx);
+                    const parentLocalBounds = getWidgetParentLocalBounds(fp.parent);
+                    if (parentLocalBounds !== null && off !== null) {
+                        fp.node.widget.drawSelectionOutline(this.screenCtx, {
+                            x: off.x,
+                            y: off.y,
+                            width: parentLocalBounds.width,
+                            height: parentLocalBounds.height,
+                        });
+                    } else {
+                        const w = fp.node.widget;
+                        const worldW = off !== null ? w.translate(off.x, off.y) : w;
+                        worldW.drawSelectionOutline(this.screenCtx);
+                    }
                 }
             } else if (selKind === "group") {
                 this._drawSelectedGroupOutline(documentRoot, selId, 0, 0);
@@ -297,7 +314,7 @@ class CanvasRenderer {
     }
 
     /** 그룹/리프 트리를 누적 translate로 그린다. */
-    _drawNode(node, ox, oy) {
+    _drawNode(node, ox, oy, parentNode = null) {
         if (node === null || node === undefined) return;
         if (node.nodeType === NodeType.LEAF) {
             this._drawShape(node.shape);
@@ -309,7 +326,7 @@ class CanvasRenderer {
                     this.screenCtx.save();
                     this.screenCtx.translate(bounds.minX, bounds.minY);
                     for (const ch of node.children) {
-                        this._drawNode(ch, childOx, childOy);
+                        this._drawNode(ch, childOx, childOy, node);
                     }
                     this.screenCtx.restore();
                 }
@@ -317,7 +334,7 @@ class CanvasRenderer {
             return;
         }
         if (node.nodeType === NodeType.WIDGET) {
-            node.widget.drawShape(this.screenCtx);
+            node.widget.drawShape(this.screenCtx, getWidgetParentLocalBounds(parentNode));
             return;
         }
         if (node.nodeType !== NodeType.GROUP) return;
@@ -326,7 +343,7 @@ class CanvasRenderer {
         this.screenCtx.save();
         this.screenCtx.translate(node.transform.x, node.transform.y);
         for (const ch of node.children) {
-            this._drawNode(ch, gx, gy);
+            this._drawNode(ch, gx, gy, node);
         }
         this.screenCtx.restore();
     }

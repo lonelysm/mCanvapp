@@ -3,7 +3,7 @@
 
 import { EShapeKind } from "./const.js";
 import { Util } from "../util.js";
-import { LabelWidget } from "./label_widget.js";
+import { DEFAULT_LABEL_OFFSET, DEFAULT_LABEL_PADDING, LabelLayoutMode, LabelWidget } from "./label_widget.js";
 import { PointShape, LineShape, CircleShape, RectShape, PolygonShape, FreehandShape } from "./shapes.js";
 import { getShapeBoundingBox } from "./shape_bounds.js";
 import {
@@ -56,6 +56,14 @@ function toolbarFillHexToRgba(hex) {
     return "rgba(47,109,246,0.2)";
 }
 
+/**
+ * 라벨 기본 스타일 객체를 만든다.
+ * @returns {{ color: string, fontSize: number, fontFamily: string }}
+ */
+function createDefaultLabelStyle() {
+    return { color: "#e6edf3", fontSize: 14, fontFamily: "system-ui, sans-serif" };
+}
+
 class ObjectManagerClass {
     static #instance = null;
 
@@ -84,6 +92,8 @@ class ObjectManagerClass {
         this.draftShape = null;
         this.draftPolygon = null;
         this.draftWidget = null;
+        this._draftWidgetBounds = null;
+        this._draftWidgetDragged = false;
         this.dragShapesSnapshot = null;
         this.dragCopiedOriginal = null;
 
@@ -203,27 +213,31 @@ class ObjectManagerClass {
             console.warn("[object_manager] addLabelWidget: 좌표 없음");
             return;
         }
+        const rectParentLeaf = this._getRectInsertTargetLeafNode();
+        if (rectParentLeaf !== null) {
+            const boundWidget = this._createBoundLabelWidgetForRectParent(flattenWidgetsInPaintOrder(this.documentRoot).length + 1, rectParentLeaf);
+            if (boundWidget === null) {
+                console.warn("[object_manager] addLabelWidget: 사각형 부모 라벨 생성 실패");
+                return;
+            }
+            this._appendWidgetToTarget(boundWidget, rectParentLeaf.id);
+            return;
+        }
+
         const gid = this.insertTargetNodeId ?? this.documentRoot.id;
-        const o = getNodeContentWorldOrigin(this.documentRoot, gid, 0, 0);
-        if (o === null) {
+        const origin = getNodeContentWorldOrigin(this.documentRoot, gid, 0, 0);
+        if (origin === null) {
             console.warn("[object_manager] addLabelWidget: 그룹 원점 없음 id=%s", gid);
             return;
         }
         const widgetCount = flattenWidgetsInPaintOrder(this.documentRoot).length;
-        const w = new LabelWidget({
-            name: `\uB77C\uBCA8${widgetCount + 1}`,
-            position: { x: worldPoint.x - o.x, y: worldPoint.y - o.y },
+        const widget = new LabelWidget({
+            name: `라벨${widgetCount + 1}`,
+            position: { x: worldPoint.x - origin.x, y: worldPoint.y - origin.y },
             text: "Contents here",
-            style: { color: "#e6edf3", fontSize: 14, fontFamily: "system-ui, sans-serif" },
+            style: createDefaultLabelStyle(),
         });
-        const node = createWidgetNode({ widget: w });
-        if (node === null) return;
-        const loc = findNodeWithParent(this.documentRoot, gid);
-        if (loc === null || (loc.node.nodeType !== NodeType.GROUP && loc.node.nodeType !== NodeType.LEAF)) {
-            console.warn("[object_manager] addLabelWidget: 대상 그룹 없음");
-            return;
-        }
-        loc.node.children.push(node);
+        this._appendWidgetToTarget(widget, gid);
     }
 
     /**
@@ -243,18 +257,107 @@ class ObjectManagerClass {
             return null;
         }
         const localWidget = widget.translate(-origin.x, -origin.y);
-        const node = createWidgetNode({ widget: localWidget });
-        if (node === null) {
-            console.warn("[object_manager] addWidget: widget node 생성 실패");
+        return this._appendWidgetToTarget(localWidget, gid);
+    }
+
+    /**
+     * 현재 삽입 대상이 사각형 리프인지 확인한다.
+     * @returns {object | null}
+     */
+    _getRectInsertTargetLeafNode() {
+        const targetNodeId = this.insertTargetNodeId ?? this.documentRoot.id;
+        const found = findNodeWithParent(this.documentRoot, targetNodeId);
+        if (found === null || found.node.nodeType !== NodeType.LEAF) {
             return null;
         }
-        const found = findNodeWithParent(this.documentRoot, gid);
+        if (found.node.shape?.kind !== EShapeKind.Rect) {
+            return null;
+        }
+        return found.node;
+    }
+
+    /**
+     * 위젯 노드를 특정 부모 아래에 바로 추가한다.
+     * @param {import("./label_widget.js").LabelWidget} widget
+     * @param {string} targetNodeId
+     * @returns {object | null}
+     */
+    _appendWidgetToTarget(widget, targetNodeId) {
+        if (widget === null || widget === undefined) {
+            console.warn("[object_manager] _appendWidgetToTarget: widget 없음");
+            return null;
+        }
+        const node = createWidgetNode({ widget });
+        if (node === null) {
+            console.warn("[object_manager] _appendWidgetToTarget: widget node 생성 실패");
+            return null;
+        }
+        const found = findNodeWithParent(this.documentRoot, targetNodeId);
         if (found === null || (found.node.nodeType !== NodeType.GROUP && found.node.nodeType !== NodeType.LEAF)) {
-            console.warn("[object_manager] addWidget: 대상 그룹 없음");
+            console.warn("[object_manager] _appendWidgetToTarget: 대상 부모 없음 id=%s", targetNodeId);
             return null;
         }
         found.node.children.push(node);
         return node;
+    }
+
+    /**
+     * 부모 사각형에 맞춰 자동 레이아웃 라벨을 만든다.
+     * @param {number} widgetIndex
+     * @param {object} parentLeafNode
+     * @returns {import("./label_widget.js").LabelWidget | null}
+     */
+    _createBoundLabelWidgetForRectParent(widgetIndex, parentLeafNode, desiredLocalBounds = null) {
+        if (parentLeafNode === null || parentLeafNode === undefined) {
+            console.warn("[object_manager] _createBoundLabelWidgetForRectParent: 부모 없음");
+            return null;
+        }
+        const parentBounds = getShapeBoundingBox(parentLeafNode.shape);
+        if (parentBounds === null) {
+            console.warn("[object_manager] _createBoundLabelWidgetForRectParent: 부모 bounds 없음");
+            return null;
+        }
+        const parentWidth = Math.max(1, parentBounds.maxX - parentBounds.minX);
+        const parentHeight = Math.max(1, parentBounds.maxY - parentBounds.minY);
+        const localBounds =
+            desiredLocalBounds !== null && desiredLocalBounds !== undefined
+                ? {
+                      x: Number(desiredLocalBounds.x) || 0,
+                      y: Number(desiredLocalBounds.y) || 0,
+                      width: Math.max(1, Number(desiredLocalBounds.width) || 1),
+                      height: Math.max(1, Number(desiredLocalBounds.height) || 1),
+                  }
+                : null;
+        const widget = new LabelWidget({
+            name: `라벨${widgetIndex}`,
+            position: {
+                x: localBounds?.x ?? DEFAULT_LABEL_PADDING.left,
+                y: localBounds?.y ?? DEFAULT_LABEL_PADDING.top,
+            },
+            text: "Contents here",
+            style: createDefaultLabelStyle(),
+            layoutMode: LabelLayoutMode.PARENT_BOUNDS,
+            offset: {
+                x: localBounds?.x ?? DEFAULT_LABEL_OFFSET.x,
+                y: localBounds?.y ?? DEFAULT_LABEL_OFFSET.y,
+            },
+            padding:
+                localBounds !== null
+                    ? {
+                          top: 0,
+                          right: parentWidth - localBounds.width,
+                          bottom: parentHeight - localBounds.height,
+                          left: 0,
+                      }
+                    : { ...DEFAULT_LABEL_PADDING },
+        });
+        widget.syncResolvedLayoutFromParent({
+            x: 0,
+            y: 0,
+            width: parentWidth,
+            height: parentHeight,
+        });
+        return widget;
     }
 
     /** 선택된 그룹(또는 루트) 아래에 빈 자식 그룹을 추가한다. */
@@ -343,6 +446,8 @@ class ObjectManagerClass {
         this.draftShape = null;
         this.draftPolygon = null;
         this.draftWidget = null;
+        this._draftWidgetBounds = null;
+        this._draftWidgetDragged = false;
         this.insertTargetNodeId = this.documentRoot.id;
         this._renderer?.requestRender?.();
     }
@@ -354,6 +459,8 @@ class ObjectManagerClass {
         this.draftShape = null;
         this.draftPolygon = null;
         this.draftWidget = null;
+        this._draftWidgetBounds = null;
+        this._draftWidgetDragged = false;
         this._renderer?.requestRender?.();
     }
 
@@ -396,9 +503,38 @@ class ObjectManagerClass {
         if (draft === null) {
             return;
         }
+        if (this._draftWidgetDragged !== true) {
+            this.draftWidget = null;
+            this._draftWidgetBounds = null;
+            this._draftWidgetDragged = false;
+            this._renderer?.requestRender?.();
+            return;
+        }
         this.pushTaskHistory();
-        const node = this.addWidget(draft);
+        const rectParentLeaf = this._getRectInsertTargetLeafNode();
+        const rectParentOrigin =
+            rectParentLeaf !== null ? getNodeContentWorldOrigin(this.documentRoot, rectParentLeaf.id, 0, 0) : null;
+        const node =
+            rectParentLeaf !== null
+                ? this._appendWidgetToTarget(
+                      this._createBoundLabelWidgetForRectParent(
+                          flattenWidgetsInPaintOrder(this.documentRoot).length + 1,
+                          rectParentLeaf,
+                          this._draftWidgetBounds !== null && rectParentOrigin !== null
+                              ? {
+                                    x: this._draftWidgetBounds.x - rectParentOrigin.x,
+                                    y: this._draftWidgetBounds.y - rectParentOrigin.y,
+                                    width: this._draftWidgetBounds.width,
+                                    height: this._draftWidgetBounds.height,
+                                }
+                              : null
+                      ),
+                      rectParentLeaf.id
+                  )
+                : this.addWidget(draft);
         this.draftWidget = null;
+        this._draftWidgetBounds = null;
+        this._draftWidgetDragged = false;
         if (node !== null) {
             this.selectedId = node.id;
             this.selectedKind = "widget";
@@ -685,9 +821,16 @@ class ObjectManagerClass {
             name: `\uB77C\uBCA8${widgetCount + 1}`,
             position: { x: pointerPoint.x, y: pointerPoint.y },
             text: "Contents here",
-            style: { color: "#e6edf3", fontSize: 14, fontFamily: "system-ui, sans-serif" },
+            style: createDefaultLabelStyle(),
         });
         draftWidget.updateDraftLayout(pointerPoint, pointerPoint);
+        this._draftWidgetBounds = {
+            x: pointerPoint.x,
+            y: pointerPoint.y,
+            width: 12,
+            height: 12,
+        };
+        this._draftWidgetDragged = false;
         return draftWidget;
     }
 
@@ -790,6 +933,13 @@ class ObjectManagerClass {
                 this.draftShape.updateDraftShape(worldPoint);
             } else if (this.draftWidget !== null && this._pointerDownPos !== null) {
                 this.draftWidget.updateDraftLayout(this._pointerDownPos, worldPoint);
+                this._draftWidgetDragged = Util.distance(this._pointerDownPos, worldPoint) >= 2;
+                this._draftWidgetBounds = {
+                    x: Math.min(this._pointerDownPos.x, worldPoint.x),
+                    y: Math.min(this._pointerDownPos.y, worldPoint.y),
+                    width: Math.max(Math.abs(worldPoint.x - this._pointerDownPos.x), 12),
+                    height: Math.max(Math.abs(worldPoint.y - this._pointerDownPos.y), 12),
+                };
             }
             this._renderer.requestRender();
             return;

@@ -19,6 +19,9 @@ function widgetFromPlain(plain) {
             position: plain.position ?? { x: 0, y: 0 },
             text: plain.text,
             style: plain.style,
+            layoutMode: plain.layoutMode,
+            offset: plain.offset,
+            padding: plain.padding,
         });
     }
     console.warn("[shape_tree_snapshot] widgetFromPlain: 알 수 없는 widgetKind=%s", plain.widgetKind);
@@ -41,6 +44,9 @@ function widgetToPlain(widget) {
             position: { ...widget.position },
             text: widget.text,
             style: { ...widget.style },
+            layoutMode: widget.layoutMode,
+            offset: { ...widget.offset },
+            padding: { ...widget.padding },
         };
     }
     return null;
