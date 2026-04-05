@@ -210,6 +210,7 @@ export class HierarchyDetailUi {
         this.detailGeomCircleR = document.getElementById("detailGeomCircleR");
         this.detailGeomRectX = document.getElementById("detailGeomRectX");
         this.detailGeomRectY = document.getElementById("detailGeomRectY");
+        this.detailGeomRectRound = document.getElementById("detailGeomRectRound");
         this.detailGeomRectW = document.getElementById("detailGeomRectW");
         this.detailGeomRectH = document.getElementById("detailGeomRectH");
         this.detailStyleStroke = document.getElementById("detailStyleStroke");
@@ -406,6 +407,7 @@ export class HierarchyDetailUi {
             const rect = Util.rectFromPoints(shape.start, shape.end);
             if (this.detailGeomRectX !== null) this.detailGeomRectX.value = formatDetailNumber(rect.x);
             if (this.detailGeomRectY !== null) this.detailGeomRectY.value = formatDetailNumber(rect.y);
+            if (this.detailGeomRectRound !== null) this.detailGeomRectRound.value = formatDetailNumber(shape.round ?? 0);
             if (this.detailGeomRectW !== null) this.detailGeomRectW.value = formatDetailNumber(rect.w);
             if (this.detailGeomRectH !== null) this.detailGeomRectH.value = formatDetailNumber(rect.h);
         }
@@ -439,6 +441,7 @@ export class HierarchyDetailUi {
             this.detailGeomCircleR,
             this.detailGeomRectX,
             this.detailGeomRectY,
+            this.detailGeomRectRound,
             this.detailGeomRectW,
             this.detailGeomRectH,
         ]) {
@@ -564,10 +567,12 @@ export class HierarchyDetailUi {
         } else if (k === EShapeKind.RECT) {
             const x = this._readNumber(this.detailGeomRectX, 0);
             const y = this._readNumber(this.detailGeomRectY, 0);
+            const round = Math.max(0, this._readNumber(this.detailGeomRectRound, shape.round ?? 0));
             const w = Math.max(1, this._readNumber(this.detailGeomRectW, 1));
             const h = Math.max(1, this._readNumber(this.detailGeomRectH, 1));
             shape.start = { x, y };
             shape.end = { x: x + w, y: y + h };
+            shape.round = Math.min(round, w / 2, h / 2);
         } else {
             this.objectManager.taskHistories.pop();
             return;

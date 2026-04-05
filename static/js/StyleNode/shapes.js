@@ -4,6 +4,39 @@
 import { EShapeKind } from "./const.js";
 import { Util } from "../util.js";
 
+/**
+ * 사각형에 라운드 값이 있으면 둥근 모서리 path를 생성한다.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {{ x: number, y: number, w: number, h: number }} rect
+ * @param {number} cornerRadius
+ */
+function buildRoundedRectPath(ctx, rect, cornerRadius) {
+    if (ctx === null || ctx === undefined) {
+        console.warn("[buildRoundedRectPath] ctx가 없습니다.");
+        return;
+    }
+    if (rect === null || rect === undefined) {
+        console.warn("[buildRoundedRectPath] rect가 없습니다.");
+        return;
+    }
+    const safeRadius = Math.max(0, Number(cornerRadius) || 0);
+    const limitedRadius = Math.min(safeRadius, rect.w / 2, rect.h / 2);
+    if (limitedRadius <= 0) {
+        ctx.rect(rect.x, rect.y, rect.w, rect.h);
+        return;
+    }
+    ctx.moveTo(rect.x + limitedRadius, rect.y);
+    ctx.lineTo(rect.x + rect.w - limitedRadius, rect.y);
+    ctx.arcTo(rect.x + rect.w, rect.y, rect.x + rect.w, rect.y + limitedRadius, limitedRadius);
+    ctx.lineTo(rect.x + rect.w, rect.y + rect.h - limitedRadius);
+    ctx.arcTo(rect.x + rect.w, rect.y + rect.h, rect.x + rect.w - limitedRadius, rect.y + rect.h, limitedRadius);
+    ctx.lineTo(rect.x + limitedRadius, rect.y + rect.h);
+    ctx.arcTo(rect.x, rect.y + rect.h, rect.x, rect.y + rect.h - limitedRadius, limitedRadius);
+    ctx.lineTo(rect.x, rect.y + limitedRadius);
+    ctx.arcTo(rect.x, rect.y, rect.x + limitedRadius, rect.y, limitedRadius);
+    ctx.closePath();
+}
+
 class BaseShape {
     constructor(options) {
         this.id = options.id ?? Util.uid("INVALID_ID");
@@ -299,6 +332,7 @@ class RectShape extends BaseShape {
         super({ ...options, kind: EShapeKind.RECT, displayName: "사각형" });
         this.start = options.start ?? { x: 0, y: 0 };
         this.end = options.end ?? { x: 0, y: 0 };
+        this.round = Math.max(0, Number(options.round) || 0);
     }
 
     getPosition() {
@@ -311,6 +345,7 @@ class RectShape extends BaseShape {
             id: this.id,
             start: Util.translatePoint(this.start, deltaX, deltaY),
             end: Util.translatePoint(this.end, deltaX, deltaY),
+            round: this.round,
             style: this.style,
         });
     }
@@ -320,6 +355,7 @@ class RectShape extends BaseShape {
             id: this.id,
             start: { ...this.start },
             end: { ...this.end },
+            round: this.round,
             style: { ...this.style },
         });
     }
@@ -358,7 +394,7 @@ class RectShape extends BaseShape {
         this.applyStyle(ctx);
         const rect = Util.rectFromPoints(this.start, this.end);
         ctx.beginPath();
-        ctx.rect(rect.x, rect.y, rect.w, rect.h);
+        buildRoundedRectPath(ctx, rect, this.round);
         if (this.style.fillEnabled) {
             ctx.fill();
         }
@@ -373,7 +409,13 @@ class RectShape extends BaseShape {
         ctx.lineCap = "butt";
         ctx.lineJoin = "miter";
         const rect = Util.rectFromPoints(this.start, this.end);
-        ctx.strokeRect(rect.x - 4, rect.y - 4, rect.w + 8, rect.h + 8);
+        ctx.beginPath();
+        buildRoundedRectPath(
+            ctx,
+            { x: rect.x - 4, y: rect.y - 4, w: rect.w + 8, h: rect.h + 8 },
+            this.round + 4
+        );
+        ctx.stroke();
         ctx.restore();
     }
 }

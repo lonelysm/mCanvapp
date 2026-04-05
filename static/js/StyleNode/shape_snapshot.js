@@ -22,7 +22,7 @@ export function shapeToPlain(shape) {
         case EShapeKind.CIRCLE:
             return { ...base, center: { ...shape.center }, radius: shape.radius };
         case EShapeKind.RECT:
-            return { ...base, start: { ...shape.start }, end: { ...shape.end } };
+            return { ...base, start: { ...shape.start }, end: { ...shape.end }, round: shape.round };
         case EShapeKind.POLYGON:
             return {
                 ...base,
@@ -76,6 +76,7 @@ export function shapeFromPlain(plain) {
                 id: plain.id,
                 start: plain.start,
                 end: plain.end,
+                round: plain.round,
                 style,
             });
         case EShapeKind.POLYGON:
